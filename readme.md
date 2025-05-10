@@ -1,5 +1,3 @@
----
-
 ## Localization Audit Tool (`localization_audit.py`)
 
 **A script to audit your Garry’s Mod Lua translations for consistency.**
