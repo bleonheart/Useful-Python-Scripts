@@ -1,40 +1,63 @@
-# Developer Utilities – Python Script Collection
+# 🎮 Developer Utilities for Garry’s Mod
 
-A collection of Python scripts to assist Garry’s Mod developers with localization auditing, asset management, Lua file organization, and more. These tools are designed to make your workflow cleaner, faster, and less error-prone.
+**A curated toolkit of Python scripts** to supercharge localization audits, asset management, Lua bundling, addon merging/splitting, and more!
 
-## 📦 Included Tools
+---
 
-### `localization_audit.py`
-**Audit your Garry’s Mod Lua translations for consistency.**
+## 🚀 Table of Contents
 
-- Extracts all defined keys from `english.lua`.
-- Scans your codebase for usage of `L("KEY")` and `notifyLocalized("KEY")`.
-- Detects missing keys, mismatches in placeholder arguments (`%s`, `%d`), and generates detailed JSON reports.
-- **Output files** (saved to your Desktop):
-  - `argloc.json`
-  - `loc_usage.json`
-  - `loc_missing.json`
-  - `loc_mismatch.json`
+- [✨ Highlights](#-highlights)  
+- [🛠️ Included Tools](#️-included-tools)  
+  - [1. localization_audit.py](#1-localization_auditpy)  
+  - [2. strip_sh_prefix.py](#2-strip_sh_prefixpy)  
+  - [3. remove_duplicates.py](#3-remove_duplicatespy)  
+  - [4. cdmaterials_extractor.py](#4-cdmaterials_extractorpy)  
+  - [5. gmod_asset_cleaner.py](#5-gmod_asset_cleanerpy)  
+  - [6. lua_bundle.py](#6-lua_bundlepy)  
+  - [7. addon_merger_splitter.py](#7-addon_merger_splitterpy)  
+  - [8. lua_table_converter.py](#8-lua_table_converterpy)  
+  - [9. super_addon_merger_splitter.py](#9-super_addon_merger_splitterpy)
 
-#### Usage
+---
+
+## ✨ Highlights
+
+- 🎯 **Focused** on Garry’s Mod dev workflows  
+- 🔍 **Automated** audits, clean-ups, merges & splits  
+- 📦 **Modular** scripts—use only what you need  
+- 📊 **JSON & reports** for easy integration  
+- ⚡ **Zero dependencies** aside from `srctools` for some tools  
+
+---
+
+## 🛠️ Included Tools
+
+---
+
+### 1. `localization_audit.py`  
+📝 **Audit your translations**  
+- Extracts keys from `english.lua`  
+- Scans for `L("KEY")` & `notifyLocalized("KEY")`  
+- Finds missing entries & placeholder mismatches (`%s`, `%d`)  
+- Outputs JSON reports:  
+  - `argloc.json`  
+  - `loc_usage.json`  
+  - `loc_missing.json`  
+  - `loc_mismatch.json`  
+
 ```bash
 python localization_audit.py
 ````
 
 ---
 
-### `strip_sh_prefix.py`
+### 2. `strip_sh_prefix.py`
 
-**Batch-rename Lua files by removing the `sh_` prefix.**
+✂️ **Batch-rename Lua files**
 
-* Recursively renames files like `sh_example.lua` → `example.lua`.
-* Logs all renames.
-
-#### Configuration
-
-Edit the `root_dir` variable at the top of the script.
-
-#### Usage
+* Recursively finds `sh_*.lua`
+* Renames to remove the `sh_` prefix
+* Logs every operation
 
 ```bash
 python strip_sh_prefix.py
@@ -42,22 +65,13 @@ python strip_sh_prefix.py
 
 ---
 
-### `remove_duplicates.py`
+### 3. `remove_duplicates.py`
 
-**Remove duplicate key-value lines in Lua or config-like files.**
+🔍 **Clean duplicate key/value lines**
 
-* Detects `key = "value",` lines.
-* Keeps the first occurrence, removes the rest.
-* Logs each removed duplicate.
-
-#### Configuration
-
-```python
-INPUT_PATH  = 'path/to/input_file.txt'
-OUTPUT_PATH = 'path/to/output_file.txt'
-```
-
-#### Usage
+* Detects duplicates in Lua or config-like files
+* Keeps the first occurrence, removes extras
+* Detailed log of removals
 
 ```bash
 python remove_duplicates.py
@@ -65,101 +79,93 @@ python remove_duplicates.py
 
 ---
 
-### `cdmaterials_extractor.py`
+### 4. `cdmaterials_extractor.py`
 
-**Extract all `cdmaterials` paths from `.mdl` files.**
+🖼️ **Extract model materials**
 
-* Recursively walks a directory of models.
-* Uses [`srctools`](https://github.com/sgb-io/srctools) to parse material paths.
-* Generates a clean JSON report.
-* 
-## 🛠 Requirements
+* Walks `.mdl` files recursively
+* Parses `cdmaterials` paths with `srctools`
+* Outputs a tidy JSON report
 
 ```bash
 pip install srctools
-```
-
-#### Usage
-
-```bash
 python cdmaterials_extractor.py [models_root_folder] [output_file.json]
 ```
 
-* `models_root_folder`: (Optional) Defaults to `~/Desktop/models`
-* `output_file.json`: (Optional) Defaults to `cdmaterials.json`
-
 ---
 
-### `gmod_asset_cleaner.py`
+### 5. `gmod_asset_cleaner.py`
 
-**Scan a Garry’s Mod addon for unused assets and clean them.**
+🧹 **Purge unused assets**
 
-* Categorizes assets: sounds, particles, images, materials, models.
-* Scans Lua files for actual usage.
-* Handles `cdmaterials` parsing to preserve used materials.
-* Cleans up unused files and empty folders.
-* Generates disk space usage summary and a JSON report.
-* 
-## 🛠 Requirements
+* Categorizes sounds, materials, models, etc.
+* Parses Lua to keep only referenced files
+* Integrates `cdmaterials_extractor`
+* Deletes leftovers & empty folders
+* Generates disk-space & JSON summaries
 
 ```bash
 pip install srctools
-```
-
-#### Usage
-
-```bash
 python gmod_asset_cleaner.py
 ```
 
 ---
 
-### `lua_bundle.py`
+### 6. `lua_bundle.py`
 
-**Bundle all Lua files from a directory into a single file.**
+📦 **Merge Lua files**
 
-* Recursively collects and alphabetically stacks `.lua` files.
-* Adds headers for traceability.
-* Outputs a single, clean file.
-
-#### Usage
+* Recursively collects `.lua` files
+* Sorts alphabetically with headers
+* Outputs one combined, traceable file
 
 ```bash
-python stack_lua_files.py <source_dir> <output_file>
+python lua_bundle.py <source_dir> <output_file>
 ```
 
 ---
 
-## Addon Merger & Splitter (`addon_merger_splitter.py`)
+### 7. `addon_merger_splitter.py`
 
-**Consolidates multiple Garry’s Mod addon folders, removes duplicates, strips unused model formats, and splits into pack-sized chunks.**
+🔀 **Merge & chunk addons**
 
-### Features
-
-1. **Merge Operation**
-
-   * Combines all subfolders in a source directory into a single destination.
-   * Skips duplicates and logs how much space is saved.
-   * Deletes empty source folders after moving.
-
-2. **Format Cleanup**
-
-   * Removes obsolete or platform-specific model files: `.dx80.vtx`, `.xbox.vtx`, `.sw.vtx`, `.360.vtx`.
-   * Reports count and total space freed for each removed format.
-
-3. **Pack Splitting**
-
-   * Organizes all files in the destination directory into numbered subfolders.
-   * Ensures no single pack exceeds 1.9 GB, suitable for workshop uploads.
-
-4. **Logging**
-
-   * Provides real-time logging of file operations, errors, and summaries.
-
-### Usage
+1. **Merge:** combines folders, dedupes, logs space saved
+2. **Cleanup:** drops obsolete model formats
+3. **Split:** creates ≤1.9 GB packs
+4. **Logging:** real-time moves, deletions & errors
 
 ```bash
 python addon_merger_splitter.py
+```
+
+---
+
+### 8. `lua_table_converter.py`
+
+🧩 **Convert scattered defs**
+
+* Gathers `ITEM.<field> = …` entries
+* Consolidates into clean Lua tables
+* Outputs `sh_<folder>.lua` with readable formatting
+
+```bash
+python lua_table_converter.py
+```
+
+---
+
+### 9. `super_addon_merger_splitter.py`
+
+💥 **All-in-one merger + cleaner + splitter**
+
+* Merges addons, dedupes & logs
+* Cleans models & unused assets (`srctools` + `humanize`)
+* Chunks into ≥1.9 GB packs
+* Detailed space-saving reports
+
+```bash
+pip install srctools humanize
+python super_addon_merger_splitter.py
 ```
 
 ---
