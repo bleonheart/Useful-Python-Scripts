@@ -128,6 +128,38 @@ python gmod_asset_cleaner.py
 python stack_lua_files.py <source_dir> <output_file>
 ```
 
-## 🤝 Contributions
+---
 
-Pull requests are welcome! Bug fixes, enhancements, or entirely new tools are encouraged.
+## Addon Merger & Splitter (`addon_merger_splitter.py`)
+
+**Consolidates multiple Garry’s Mod addon folders, removes duplicates, strips unused model formats, and splits into pack-sized chunks.**
+
+### Features
+
+1. **Merge Operation**
+
+   * Combines all subfolders in a source directory into a single destination.
+   * Skips duplicates and logs how much space is saved.
+   * Deletes empty source folders after moving.
+
+2. **Format Cleanup**
+
+   * Removes obsolete or platform-specific model files: `.dx80.vtx`, `.xbox.vtx`, `.sw.vtx`, `.360.vtx`.
+   * Reports count and total space freed for each removed format.
+
+3. **Pack Splitting**
+
+   * Organizes all files in the destination directory into numbered subfolders.
+   * Ensures no single pack exceeds 1.9 GB, suitable for workshop uploads.
+
+4. **Logging**
+
+   * Provides real-time logging of file operations, errors, and summaries.
+
+### Usage
+
+```bash
+python addon_merger_splitter.py
+```
+
+---
