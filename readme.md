@@ -1,50 +1,40 @@
-## Localization Audit Tool (`localization_audit.py`)
+# Developer Utilities – Python Script Collection
 
-**A script to audit your Garry’s Mod Lua translations for consistency.**
+A collection of Python scripts to assist Garry’s Mod developers with localization auditing, asset management, Lua file organization, and more. These tools are designed to make your workflow cleaner, faster, and less error-prone.
 
-### Features
+## 📦 Included Tools
 
-* **Defined Keys**
-  Reads `english.lua` to list every `KEY = "…"` entry.
-* **Placeholder Counts**
-  Counts `%s` and `%d` slots in each translation string.
-* **Usage Scan**
-  Finds all calls of `L("KEY", …)` and `notifyLocalized("KEY", …)` across your codebase.
-* **Missing Keys**
-  Flags localization calls whose keys aren’t defined in `english.lua`.
-* **Argument Mismatches**
-  Detects when the number of arguments passed doesn’t match the string’s placeholders.
-* **Reports**
-  Saves JSON reports to your Desktop:
+### `localization_audit.py`
+**Audit your Garry’s Mod Lua translations for consistency.**
 
-  * `argloc.json` (argument counts)
-  * `loc_usage.json` (where keys are used)
-  * `loc_missing.json` (undefined-key calls)
-  * `loc_mismatch.json` (placeholder/argument mismatches)
+- Extracts all defined keys from `english.lua`.
+- Scans your codebase for usage of `L("KEY")` and `notifyLocalized("KEY")`.
+- Detects missing keys, mismatches in placeholder arguments (`%s`, `%d`), and generates detailed JSON reports.
+- **Output files** (saved to your Desktop):
+  - `argloc.json`
+  - `loc_usage.json`
+  - `loc_missing.json`
+  - `loc_mismatch.json`
 
-### Usage
-
+#### Usage
 ```bash
 python localization_audit.py
-```
+````
 
 ---
 
-## sh\_ Prefix Stripper (`strip_sh_prefix.py`)
+### `strip_sh_prefix.py`
 
-**Batch-rename all Lua files beginning with `sh_`, removing that prefix and logging each result.**
+**Batch-rename Lua files by removing the `sh_` prefix.**
 
-### What It Does
+* Recursively renames files like `sh_example.lua` → `example.lua`.
+* Logs all renames.
 
-1. Recursively searches a target directory for files matching `sh_*.lua`.
-2. Renames each file by dropping the `sh_` prefix (e.g. `sh_item.lua` → `item.lua`).
-3. Logs success or failure for every rename operation.
+#### Configuration
 
-### Configuration
+Edit the `root_dir` variable at the top of the script.
 
-Edit the `root_dir` variable at the top of the script to point to your folder.
-
-### Usage
+#### Usage
 
 ```bash
 python strip_sh_prefix.py
@@ -52,27 +42,22 @@ python strip_sh_prefix.py
 
 ---
 
-## Duplicate Key Remover (`remove_duplicates.py`)
+### `remove_duplicates.py`
 
-**Removes duplicate `key = "value",` lines from a text file, keeping only the first occurrence.**
+**Remove duplicate key-value lines in Lua or config-like files.**
 
-### Features
+* Detects `key = "value",` lines.
+* Keeps the first occurrence, removes the rest.
+* Logs each removed duplicate.
 
-* Detects lines of the form `key = "value",` (including bracketed or quoted keys).
-* Keeps the first definition of each key; removes subsequent duplicates.
-* Writes the cleaned content to an output file.
-* Logs every removed key to the console.
-
-### Configuration
-
-Adjust the constants at the top of the script:
+#### Configuration
 
 ```python
 INPUT_PATH  = 'path/to/input_file.txt'
 OUTPUT_PATH = 'path/to/output_file.txt'
 ```
 
-### Usage
+#### Usage
 
 ```bash
 python remove_duplicates.py
@@ -80,61 +65,69 @@ python remove_duplicates.py
 
 ---
 
-## CDMaterials Extractor (`cdmaterials_extractor.py`)
+### `cdmaterials_extractor.py`
 
-**Scans `.mdl` model files for their `cdmaterials` paths and outputs a JSON report.**
+**Extract all `cdmaterials` paths from `.mdl` files.**
 
-### Features
+* Recursively walks a directory of models.
+* Uses [`srctools`](https://github.com/sgb-io/srctools) to parse material paths.
+* Generates a clean JSON report.
+* 
+## 🛠 Requirements
 
-* **Recursive Walk**
-  Finds all `.mdl` files under a given root folder.
-* **Model Parsing**
-  Uses `srctools` to read each model’s `cdmaterials` list.
-* **Error Resilience**
-  Logs parse errors to stderr without halting the scan.
-* **JSON Output**
-  Writes an array of objects `{ "model": "...", "materials": [...] }` to a JSON file.
+```bash
+pip install srctools
+```
 
-### Usage
+#### Usage
 
 ```bash
 python cdmaterials_extractor.py [models_root_folder] [output_file.json]
 ```
 
-* `models_root_folder` (optional): directory to search (defaults to `~/Desktop/models`)
-* `output_file.json` (optional): output path (defaults to `cdmaterials.json`)
+* `models_root_folder`: (Optional) Defaults to `~/Desktop/models`
+* `output_file.json`: (Optional) Defaults to `cdmaterials.json`
 
 ---
 
-## Garry’s Mod Asset Cleaner (`gmod_asset_cleaner.py`)
+### `gmod_asset_cleaner.py`
 
-**Audit and clean unused assets in a Garry’s Mod addon folder.**
+**Scan a Garry’s Mod addon for unused assets and clean them.**
 
-### Features
+* Categorizes assets: sounds, particles, images, materials, models.
+* Scans Lua files for actual usage.
+* Handles `cdmaterials` parsing to preserve used materials.
+* Cleans up unused files and empty folders.
+* Generates disk space usage summary and a JSON report.
+* 
+## 🛠 Requirements
 
-1. **Asset Discovery**
-   Categorizes files into sounds (`.wav`, `.mp3`), particles (`.pcf`), images (`.png`, `.jpg`), materials (`.vmt`, `.vtf`), and models (`.mdl`, `.phy`).
-2. **Usage Detection**
-   Reads all Lua scripts to see which assets are actually referenced.
-3. **Non-Material Cleanup**
+```bash
+pip install srctools
+```
 
-   * Reports counts and sizes of unused sound/particle/image/model files.
-   * Prompts to delete them and removes now-empty directories.
-4. **Material Preservation**
-
-   * Parses every model’s `cdmaterials` via `srctools` to keep required material folders.
-   * Flags unused `.vmt`/`.vtf` files and optionally deletes them.
-5. **Cleanup Summary**
-
-   * Cleans up empty folders.
-   * Reports total freed disk space.
-6. **JSON Report**
-   Exports `cdmaterials.json` containing each model’s material paths.
-
-### Usage
+#### Usage
 
 ```bash
 python gmod_asset_cleaner.py
 ```
 
 ---
+
+### `lua_bundle.py`
+
+**Bundle all Lua files from a directory into a single file.**
+
+* Recursively collects and alphabetically stacks `.lua` files.
+* Adds headers for traceability.
+* Outputs a single, clean file.
+
+#### Usage
+
+```bash
+python stack_lua_files.py <source_dir> <output_file>
+```
+
+## 🤝 Contributions
+
+Pull requests are welcome! Bug fixes, enhancements, or entirely new tools are encouraged.
