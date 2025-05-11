@@ -9,10 +9,10 @@ import humanize
 from srctools.filesys import get_filesystem, RawFileSystem, FileSystemChain
 from srctools.mdl import Model
 
-DEFAULT_SOURCE = Path('C:/Users/Admin/AppData/Local/Temp/gmpublisher')
-DEFAULT_DEST = Path('D:/Merged')
-DEFAULT_LUA_LOCATION = DEFAULT_DEST
-GMOD_DIR = Path('D:/SteamLibrary/steamapps/common/GarrysMod/garrysmod')
+DEFAULT_SOURCE = Path(r'C:\Users\David\Desktop\Nova pasta (3)')
+DEFAULT_DEST = Path(r'C:\Users\David\Desktop\Merged')
+DEFAULT_LUA_LOCATION = Path(r'C:\Users\Administrator\Desktop\new')
+GMOD_DIR = Path(r'D:\SteamLibrary\steamapps\common\GarrysMod')
 
 BAD_MODEL_FORMATS = ('.dx80.vtx', '.xbox.vtx', '.sw.vtx', '.360.vtx')
 SOUND_EXTS = {'.wav', '.mp3', '.ogg', '.flac', '.aac'}
