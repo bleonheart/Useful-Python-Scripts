@@ -8,8 +8,8 @@ from pathlib import Path
 from srctools.filesys import get_filesystem, RawFileSystem, FileSystemChain
 from srctools.mdl import Model
 
-ROOT = Path(r'C:\Users\David\Desktop\gay\backup')
-MERGE_SOURCE = Path(r'C:\Users\David\Desktop\original')
+ROOT = Path(r'C:\Users\David\Desktop\backup')
+MERGE_SOURCE = Path(r'E:\original')
 GMOD_DIR = Path(r'D:\SteamLibrary\steamapps\common\GarrysMod\garrysmod')
 LUA_DIR = Path(r'E:\GMOD\Server\garrysmod\gamemodes\metrorp\devmodules\bonemerge')
 LOG_FILE = Path.home() / 'Desktop' / 'found_log.txt'
