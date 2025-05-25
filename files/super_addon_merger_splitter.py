@@ -3,290 +3,170 @@ import sys
 import json
 import shutil
 import logging
+from collections import defaultdict
 from pathlib import Path
-from collections import Counter
-import humanize
 from srctools.filesys import get_filesystem, RawFileSystem, FileSystemChain
 from srctools.mdl import Model
 
-DEFAULT_SOURCE = Path(r'C:\Users\David\Desktop\Nova pasta (3)')
-DEFAULT_DEST = Path(r'C:\Users\David\Desktop\Merged')
-DEFAULT_LUA_LOCATION = Path(r'C:\Users\Administrator\Desktop\new')
-GMOD_DIR = Path(r'D:\SteamLibrary\steamapps\common\GarrysMod')
-
-BAD_MODEL_FORMATS = ('.dx80.vtx', '.xbox.vtx', '.sw.vtx', '.360.vtx')
-SOUND_EXTS = {'.wav', '.mp3', '.ogg', '.flac', '.aac'}
+ROOT = Path(r'C:\Users\David\Desktop\gay\backup')
+MERGE_SOURCE = Path(r'C:\Users\David\Desktop\original')
+GMOD_DIR = Path(r'D:\SteamLibrary\steamapps\common\GarrysMod\garrysmod')
+LUA_DIR = Path(r'E:\GMOD\Server\garrysmod\gamemodes\metrorp\devmodules\bonemerge')
+LOG_FILE = Path.home() / 'Desktop' / 'found_log.txt'
+WORKSHOP_FILE = Path.home() / 'Desktop' / 'workshop_mdls.txt'
+MATERIALS_FILE = Path.home() / 'Desktop' / 'materials_list.txt'
+JSON_FILE = Path.home() / 'Desktop' / 'cdmaterials.json'
+SOUND_EXTS = {'.wav','.mp3','.ogg','.flac','.aac'}
 PARTICLE_EXTS = {'.pcf'}
-IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.tga', '.dds', '.bmp', '.gif'}
-MATERIAL_EXTS = {'.vmt', '.vtf'}
-MODEL_EXTS = {'.mdl', '.phy', '.vvd', '.vtx', '.dx90.vtx'}
+IMAGE_EXTS = {'.png','.jpg','.jpeg','.tga','.dds','.bmp','.gif'}
+MATERIAL_EXTS = {'.vmt','.vtf'}
+MODEL_EXTS = {'.mdl','.phy','.vvd','.vtx','.dx90.vtx'}
+CORE_DIRS = {'lua','materials','models','sound','maps','particles','scripts','resource','cfg','gamemodes','shaders'}
+GB = 1024 ** 3
 
-PACK_MAX_BYTES = int(1.9 * 1024**3)
+def _n(p): return p.replace('\\','/').lower()
 
+def merge(s,d):
+    for a in s.iterdir():
+        if not a.is_dir(): continue
+        for f in a.rglob('*'):
+            if not f.is_file(): continue
+            t=d/f.relative_to(a)
+            t.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(f,t)
 
-def norm(path: str) -> str:
-    return path.replace('\\', '/').lower()
+def flatten(r):
+    for s in r.iterdir():
+        if not s.is_dir() or s.name.lower() in CORE_DIRS: continue
+        for f in s.rglob('*'):
+            if not f.is_file(): continue
+            t=r/f.relative_to(s)
+            t.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(f,t)
 
+def read_lua():
+    parts=[]
+    for p in LUA_DIR.rglob('*.lua'):
+        try: parts.append(p.read_text('utf-8','ignore'))
+        except: pass
+    return _n('\n'.join(parts))
 
-def prompt_path(prompt: str, default: Path) -> Path:
-    user = input(f'{prompt} [{default}]: ').strip()
-    return Path(user) if user else default
-
-
-def get_config():
-    source = prompt_path('Source directory', DEFAULT_SOURCE)
-    destination = prompt_path('Destination directory', DEFAULT_DEST)
-    lua_location = prompt_path('Lua files location', DEFAULT_LUA_LOCATION)
-    return source.resolve(), destination.resolve(), lua_location.resolve()
-
-
-def merge_source_folders(source: Path, dest: Path):
-    if not source.is_dir():
-        logging.error('Source %s does not exist or is not a directory', source)
-        sys.exit(1)
-    dest.mkdir(parents=True, exist_ok=True)
-    duplicates = 0
-    space_saved = 0
-    for sub in source.iterdir():
-        if not sub.is_dir():
-            continue
-        for f in sub.rglob('*'):
-            if not f.is_file():
-                continue
-            rel = f.relative_to(sub)
-            target = dest / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if target.exists():
-                duplicates += 1
-                space_saved += f.stat().st_size
-                try:
-                    f.unlink()
-                except Exception as exc:
-                    logging.warning('Failed to delete duplicate %s: %s', f, exc)
-            else:
-                try:
-                    shutil.move(str(f), str(target))
-                except Exception as exc:
-                    logging.warning('Failed to move %s: %s', f, exc)
-        try:
-            shutil.rmtree(sub)
-        except Exception as exc:
-            logging.warning('Failed to remove folder %s: %s', sub, exc)
-    return space_saved
-
-
-def remove_redundant_formats(dest: Path):
-    freed = 0
-    for f in dest.rglob('*'):
-        if not f.is_file():
-            continue
-        name = f.name.lower()
-        for fmt in BAD_MODEL_FORMATS:
-            if name.endswith(fmt):
-                size = f.stat().st_size
-                try:
-                    f.unlink()
-                    freed += size
-                except Exception as exc:
-                    logging.warning('Failed to remove %s: %s', f, exc)
-                break
-    return freed
-
-
-def read_all_lua(root: Path) -> str:
-    parts = []
-    for base, _, files in os.walk(root):
-        for fn in files:
-            if fn.lower().endswith('.lua'):
-                try:
-                    with open(Path(base, fn), encoding='utf-8', errors='ignore') as fp:
-                        parts.append(fp.read())
-                except Exception:
-                    pass
-    return norm('\n'.join(parts))
-
-
-def group_files(root: Path):
-    cats = {c: {} for c in ('sound', 'particle', 'image', 'material', 'model')}
-    model_exts = sorted(MODEL_EXTS, key=lambda e: -len(e))
-    for base, _, files in os.walk(root):
-        for fn in files:
-            full = Path(base, fn)
-            rel_norm = norm(str(full.relative_to(root)))
-            lower = fn.lower()
-            ext_match = next((e for e in model_exts if lower.endswith(e)), None)
-            if ext_match:
-                cat = 'model'
-                key = rel_norm[:-len(ext_match)]
-            else:
-                ext = Path(lower).suffix
-                if ext in SOUND_EXTS:
-                    cat = 'sound'
-                    key = rel_norm
-                elif ext in PARTICLE_EXTS:
-                    cat = 'particle'
-                    key = rel_norm
-                elif ext in IMAGE_EXTS:
-                    cat = 'image'
-                    key = rel_norm
-                elif ext in MATERIAL_EXTS:
-                    cat = 'material'
-                    key = rel_norm[:-len(ext)]
-                else:
-                    continue
-            cats[cat].setdefault(key, []).append(full)
+def gather():
+    cats=defaultdict(list)
+    me=sorted(MODEL_EXTS,key=lambda e:-len(e))
+    for f in ROOT.rglob('*'):
+        if not f.is_file(): continue
+        rel=_n(str(f.relative_to(ROOT)))
+        n=f.name.lower()
+        ext=next((e for e in me if n.endswith(e)),None)
+        if ext: cats['model'].append((rel[:-len(ext)],f)); continue
+        ext=f.suffix.lower()
+        if ext in SOUND_EXTS: cats['sound'].append((rel,f))
+        elif ext in PARTICLE_EXTS: cats['particle'].append((rel,f))
+        elif ext in IMAGE_EXTS: cats['image'].append((rel,f))
+        elif ext in MATERIAL_EXTS: cats['material'].append((rel.rsplit('.',1)[0],f))
     return cats
 
+def extract_cdmaterials(fs,name):
+    mdl=Model(fs,fs[name])
+    return getattr(mdl,'cdmaterials',[])
 
-def find_unused_non_materials(lua_text: str, cats):
-    unused = []
-    sizes = Counter()
-    for cat in ('sound', 'particle', 'image'):
-        for key, paths in cats[cat].items():
-            if key not in lua_text:
-                for p in paths:
-                    unused.append((p, cat))
-                    sizes[cat] += p.stat().st_size
-    for key, paths in cats['model'].items():
-        if f'{key}.mdl' not in lua_text:
-            for p in paths:
-                unused.append((p, 'model'))
-                sizes['model'] += p.stat().st_size
-    return unused, sizes
+def load_cdmaterials():
+    entries=[]
+    keep=set()
+    for base,_,files in os.walk(str(ROOT)):
+        fs=FileSystemChain(RawFileSystem(base),get_filesystem(str(GMOD_DIR)))
+        for fn in files:
+            if not fn.lower().endswith('.mdl'): continue
+            try: mats=extract_cdmaterials(fs,fn)
+            except: mats=[]
+            entries.append({'model':str(Path(base)/fn),'materials':mats})
+            for d in mats:
+                nd=_n(os.path.join('materials',d.strip('/\\'))+'/')
+                keep.add(nd)
+    with open(JSON_FILE,'w',encoding='utf-8') as f: json.dump(entries,f,ensure_ascii=False,indent=2)
+    return keep
 
+def write_models(used):
+    paths=[k+'.mdl' for k in used]
+    WORKSHOP_FILE.write_text('\n'.join(paths),encoding='utf-8')
 
-def delete_paths(paths_with_cat):
-    bytes_by_type = Counter()
-    total = 0
-    for p, cat in paths_with_cat:
-        try:
-            size = p.stat().st_size
-            p.unlink()
-            total += size
-            bytes_by_type[cat] += size
-        except Exception:
-            pass
-    return total, bytes_by_type
+def delete_unused_space(category,cats,used):
+    freed=0
+    for k,f in cats[category]:
+        if k not in used:
+            try: freed+=f.stat().st_size;f.unlink()
+            except: pass
+    return freed
 
+def write_materials(keep):
+    paths=[]
+    for p in ROOT.rglob('materials/**/*'):
+        if p.is_file():
+            rel=_n(str(p.relative_to(ROOT)))
+            if any(rel.startswith(k) for k in keep): paths.append(rel)
+    MATERIALS_FILE.write_text('\n'.join(paths),encoding='utf-8')
+    return set(paths)
 
-def clean_empty_dirs(root: Path):
-    removed = 0
-    for base, dirs, files in os.walk(root, topdown=False):
-        if not dirs and not files:
-            try:
-                Path(base).rmdir()
-                removed += 1
-            except OSError:
-                pass
-    return removed
+def delete_unused_materials(used):
+    mats=[f for _,f in gather()['material']]
+    freed=0
+    for f in mats:
+        rel=_n(str(f.relative_to(ROOT)))
+        if rel not in used:
+            try: freed+=f.stat().st_size;f.unlink()
+            except: pass
+    return freed
 
-
-def extract_cdmaterials(root: Path):
-    entries = []
-    keep_dirs = set()
-    fs = FileSystemChain(RawFileSystem(root), get_filesystem(GMOD_DIR))
-    for mdl in root.rglob('*.mdl'):
-        rel = mdl.relative_to(root)
-        try:
-            cdirs = Model(fs, fs[str(rel)]).cdmaterials
-        except Exception:
-            cdirs = []
-        mats = []
-        for d in cdirs:
-            nd = norm(Path('materials', d.strip('/\\')).as_posix() + '/')
-            keep_dirs.add(nd)
-            mats.append(nd)
-        entries.append({'model': str(mdl), 'materials': mats})
-    return entries, keep_dirs
-
-
-def find_unused_materials(lua_text: str, mats: dict, keep_dirs: set, root: Path):
-    unused = []
-    for _, paths in mats.items():
-        for p in paths:
-            rel_norm = norm(str(p.relative_to(root)))
-            key = norm(str(p.with_suffix('')))
-            if not any(rel_norm.startswith(d) for d in keep_dirs) and key + '.vmt' not in lua_text and key + '.vtf' not in lua_text:
-                unused.append(p)
-    return unused
-
-
-def lua_cleanup(root: Path):
-    lua_text = read_all_lua(root)
-    cats = group_files(root)
-    unused_non_mat, sizes_non_mat = find_unused_non_materials(lua_text, cats)
-    print(f'Unused non-material assets: {len(unused_non_mat)} ({humanize.naturalsize(sum(sizes_non_mat.values()))})')
-    freed_non_mat = 0
-    freed_by_type = Counter()
-    if unused_non_mat and input('Delete unused non-material assets? (yes/no): ').strip().lower() == 'yes':
-        freed_non_mat, freed_by_type = delete_paths(unused_non_mat)
-        clean_empty_dirs(root)
-        print(f'Freed {humanize.naturalsize(freed_non_mat)} by removing non-material assets')
-    entries, keep_dirs = extract_cdmaterials(root)
-    with open('cdmaterials.json', 'w', encoding='utf-8') as fp:
-        json.dump(entries, fp, ensure_ascii=False, indent=2)
-    mats_unused = find_unused_materials(lua_text, cats['material'], keep_dirs, root)
-    print(f'Unused materials: {len(mats_unused)} ({humanize.naturalsize(sum(p.stat().st_size for p in mats_unused))})')
-    freed_mat = 0
-    if mats_unused and input('Delete unused material assets? (yes/no): ').strip().lower() == 'yes':
-        paths_with_cat = [(p, 'material') for p in mats_unused]
-        freed_mat, mat_bytes = delete_paths(paths_with_cat)
-        freed_by_type.update(mat_bytes)
-        clean_empty_dirs(root)
-        print(f'Freed {humanize.naturalsize(freed_mat)} by removing materials')
-    return freed_non_mat, freed_mat, freed_by_type
-
-
-def split_into_packs(dest: Path, max_bytes: int):
-    pack = 1
-    current = 0
-    for f in sorted(dest.rglob('*')):
-        if not f.is_file():
-            continue
-        if f.relative_to(dest).parts[0].isdigit():
-            continue
-        size = f.stat().st_size
-        if current + size > max_bytes:
-            pack += 1
-            current = 0
-        target = dest / str(pack) / f.relative_to(dest).parent
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(f), str(target / f.name))
-        current += size
-    logging.info('Splitting complete')
-
-
-def summarize(merge_bytes, format_bytes, freed_non_mat, freed_mat, freed_by_type):
-    total_unused = freed_non_mat + freed_mat
-    total_saved = merge_bytes + format_bytes + total_unused
-    print('\nSpace Savings Report')
-    print('--------------------')
-    print(f'From merging duplicate files: {humanize.naturalsize(merge_bytes)}')
-    print(f'From deleting redundant formats: {humanize.naturalsize(format_bytes)}')
-    print(f'From deleting unused assets (total): {humanize.naturalsize(total_unused)}')
-    print('Breakdown by type:')
-    for t in ('sound', 'image', 'material', 'model', 'particle'):
-        print(f'  {t.capitalize()}: {humanize.naturalsize(freed_by_type.get(t, 0))}')
-    print(f'Total general space saved: {humanize.naturalsize(total_saved)}')
-
+def clean_empty(root):
+    for d in sorted((p for p in root.rglob('*') if p.is_dir()),key=lambda p:-len(str(p))):
+        try: next(d.iterdir())
+        except StopIteration:
+            try: d.rmdir()
+            except: pass
 
 def main():
-    logging.basicConfig(level=logging.INFO, format='%(message)s')
-    source, dest, _ = get_config()
-    logging.info('Merging source folders...')
-    merge_bytes = merge_source_folders(source, dest)
-    logging.info('Removing redundant model formats...')
-    format_bytes = remove_redundant_formats(dest)
-    logging.info('Lua-aware cleanup...')
-    freed_non_mat, freed_mat, freed_by_type = lua_cleanup(dest)
-    logging.info('Splitting files into packs...')
-    split_into_packs(dest, PACK_MAX_BYTES)
-    summarize(merge_bytes, format_bytes, freed_non_mat, freed_mat, freed_by_type)
-    try:
-        Path('cdmaterials.json').unlink()
-    except FileNotFoundError:
-        pass
+    logging.basicConfig(handlers=[logging.FileHandler(LOG_FILE,encoding='utf-8')],level=logging.INFO,format='%(message)s')
+    merge(MERGE_SOURCE,ROOT)
+    flatten(ROOT)
+    lua=read_lua()
+    cats=gather()
+    # models
+    before_models=sum(f.stat().st_size for _,f in cats['model'])
+    used_models={k for k,f in cats['model'] if k+'.mdl' in lua}
+    write_models(used_models)
+    freed_models=delete_unused_space('model',cats,used_models)
+    after_models=before_models-freed_models
+    # sounds
+    before_sounds=sum(f.stat().st_size for _,f in cats['sound'])
+    used_sounds={k for k,f in cats['sound'] if k in lua}
+    freed_sounds=delete_unused_space('sound',cats,used_sounds)
+    after_sounds=before_sounds-freed_sounds
+    # particles
+    before_particles=sum(f.stat().st_size for _,f in cats['particle'])
+    used_particles={k for k,f in cats['particle'] if k in lua}
+    freed_particles=delete_unused_space('particle',cats,used_particles)
+    after_particles=before_particles-freed_particles
+    # images
+    before_images=sum(f.stat().st_size for _,f in cats['image'])
+    used_images={k for k,f in cats['image'] if k in lua}
+    freed_images=delete_unused_space('image',cats,used_images)
+    after_images=before_images-freed_images
+    # materials
+    keep=load_cdmaterials()
+    before_materials=sum(f.stat().st_size for _,f in cats['material'])
+    used_materials=write_materials(keep)
+    freed_materials=delete_unused_materials(used_materials)
+    after_materials=before_materials-freed_materials
+    clean_empty(ROOT)
+    print(
+        f"Report:\n"
+        f"Models: before {before_models/GB:.2f} GB, freed {freed_models/GB:.2f} GB, after {after_models/GB:.2f} GB\n"
+        f"Sounds: before {before_sounds/GB:.2f} GB, freed {freed_sounds/GB:.2f} GB, after {after_sounds/GB:.2f} GB\n"
+        f"Particles: before {before_particles/GB:.2f} GB, freed {freed_particles/GB:.2f} GB, after {after_particles/GB:.2f} GB\n"
+        f"Images: before {before_images/GB:.2f} GB, freed {freed_images/GB:.2f} GB, after {after_images/GB:.2f} GB\n"
+        f"Materials: before {before_materials/GB:.2f} GB, freed {freed_materials/GB:.2f} GB, after {after_materials/GB:.2f} GB"
+    )
 
-
-if __name__ == '__main__':
+if __name__=='__main__':
     main()
