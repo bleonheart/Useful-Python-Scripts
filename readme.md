@@ -1,3 +1,9 @@
+# Disclaimer
+
+WIP, some may not work
+
+
+
 # 🎮 Developer Utilities for Garry’s Mod
 
 **A curated toolkit of Python scripts** to supercharge localization audits, asset management, Lua bundling, addon merging/splitting, and more!
