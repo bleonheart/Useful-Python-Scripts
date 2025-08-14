@@ -3,6 +3,7 @@ import os
 import re
 from datetime import datetime
 
+# User-configurable defaults
 REPO_ROOT = "E:/GMOD/Server/garrysmod/gamemodes/Lilia"
 GAMEMODE_DIR = os.path.join(REPO_ROOT, "gamemode")
 LANG_FILE = os.path.join(GAMEMODE_DIR, "languages", "english.lua")

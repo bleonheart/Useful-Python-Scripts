@@ -2,8 +2,12 @@ import re
 import sys
 from pathlib import Path
 
-root = Path(r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode")
-doc_path = Path(r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\documentation\docs\hooks\gamemode_hooks.md")
+# User-configurable defaults
+DEFAULT_GAMEMODE_ROOT = Path(r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\gamemode")
+DEFAULT_DOC_MD = Path(r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\documentation\\docs\\hooks\\gamemode_hooks.md")
+
+root = DEFAULT_GAMEMODE_ROOT
+doc_path = DEFAULT_DOC_MD
 hooks_out_path = root / "unique_hooks.txt"
 missing_out_path = doc_path.parent / "hooks_missing_from_docs.txt"
 

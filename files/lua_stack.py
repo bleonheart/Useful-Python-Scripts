@@ -20,7 +20,7 @@ def stack_lua_files(source_dir, output_file):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--source', default=r'C:\')
+    parser.add_argument('-s', '--source', default=os.getcwd())
     parser.add_argument('-o', '--output')
     args = parser.parse_args()
     out = args.output or os.path.join(args.source, 'output.lua')

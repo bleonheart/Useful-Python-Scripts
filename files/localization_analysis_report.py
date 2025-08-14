@@ -1,5 +1,12 @@
 import argparse, os, re, sys, datetime, shutil
 
+# User-configurable defaults
+DEFAULT_FRAMEWORK_GAMEMODE_DIR = r'E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode'
+DEFAULT_FRAMEWORK_LANGUAGES_DIR = r'E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode\languages'
+DEFAULT_MODULES_ROOT = r'E:\GMOD\Server\garrysmod\gamemodes\metrorp\gitmodules'
+DEFAULT_OUT_PATTERN = 'localization_report_{name}.md'
+DEFAULT_LIMIT = 500
+
 def unquote(v):
     if not v:
         return v
@@ -1045,11 +1052,11 @@ def cleanup_language_file(language_file, unused_keys, values):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--framework-gamemode-dir', default=r'E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode')
-    p.add_argument('--framework-languages-dir', default=r'E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode\languages')
-    p.add_argument('--modules-root', default=r'E:\GMOD\Server\garrysmod\gamemodes\metrorp\gitmodules')
-    p.add_argument('--out-pattern', default='localization_report_{name}.md')
-    p.add_argument('--limit', type=int, default=500)
+    p.add_argument('--framework-gamemode-dir', default=DEFAULT_FRAMEWORK_GAMEMODE_DIR)
+    p.add_argument('--framework-languages-dir', default=DEFAULT_FRAMEWORK_LANGUAGES_DIR)
+    p.add_argument('--modules-root', default=DEFAULT_MODULES_ROOT)
+    p.add_argument('--out-pattern', default=DEFAULT_OUT_PATTERN)
+    p.add_argument('--limit', type=int, default=DEFAULT_LIMIT)
     p.add_argument('--format', choices=['auto', 'md', 'txt'], default='auto')
     a = p.parse_args()
     if not os.path.isdir(a.framework_gamemode_dir):

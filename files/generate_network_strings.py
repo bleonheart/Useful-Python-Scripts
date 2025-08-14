@@ -3,6 +3,10 @@ import re
 import sys
 from pathlib import Path
 
+# User-configurable defaults
+DEFAULT_LUA_ROOT = Path(r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode")
+DEFAULT_OUTPUT_LUA = Path("network_strings.lua")
+
 PATTERNS = [
     re.compile(r"net\.Start\(\s*['\"]([^'\"]+)['\"]"),
     re.compile(r"net\.Receive\(\s*['\"]([^'\"]+)['\"]"),
@@ -33,8 +37,8 @@ def write_lua_file(messages: list[str], output_path: Path) -> None:
     output_path.write_text(lua, encoding="utf-8")
 
 def main() -> None:
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode")
-    output = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("network_strings.lua")
+    root = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_LUA_ROOT
+    output = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_OUTPUT_LUA
     if not root.is_dir():
         print(f"Error: '{root}' is not a valid directory", file=sys.stderr)
         sys.exit(1)

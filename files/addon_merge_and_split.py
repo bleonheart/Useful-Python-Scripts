@@ -3,9 +3,14 @@ import sys
 import logging
 from pathlib import Path
 
+# ===== User-configurable defaults =====
+DEFAULT_SOURCE_PATH = Path(r"C:\Users\David\Desktop\backup")
+DEFAULT_DESTINATION_PATH = Path(r"C:\Users\David\Desktop\Merged")
+DEFAULT_MAX_PACK_SIZE = int(1.9 * 1024**3)  # ~1.9 GB
+
 def get_paths():
-    source_default = Path("C:\\Users\\David\\Desktop\\backup")
-    destination_default = Path("C:\\Users\\David\\Desktop\\Merged")
+    source_default = DEFAULT_SOURCE_PATH
+    destination_default = DEFAULT_DESTINATION_PATH
     src_input = input(f"Enter the SOURCE path or press Enter to use [{source_default}]: ").strip()
     dst_input = input(f"Enter the DESTINATION path or press Enter to use [{destination_default}]: ").strip()
     source = Path(src_input) if src_input else source_default
@@ -69,7 +74,7 @@ def main():
     logging.info("Starting merge from %s to %s", source, destination)
     merge_folders(source, destination)
     logging.info("Starting split into packs")
-    split_into_packs(destination, int(1.9 * 1024**3))
+    split_into_packs(destination, DEFAULT_MAX_PACK_SIZE)
 
 if __name__ == "__main__":
     main()
