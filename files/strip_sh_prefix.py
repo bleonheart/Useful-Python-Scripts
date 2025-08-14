@@ -1,6 +1,6 @@
 from pathlib import Path
 
-root_dir = Path(r"C:\Users\Administrator\Desktop\items")
+root_dir = Path(r"E:\GMOD\Server\garrysmod\gamemodes\falloutrp\schema\aid")
 for file_path in root_dir.rglob("sh_*.lua"):
     target = file_path.with_name(file_path.name[3:])
     try:

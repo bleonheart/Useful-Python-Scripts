@@ -4,8 +4,8 @@ import re
 import sys
 
 folder_table = {
-    "ties": r"C:\Users\Administrator\Desktop\ties",
-    "bonemerge": r"C:\Users\Administrator\Desktop\bonemerge",
+    "aid": r"E:\GMOD\Server\garrysmod\gamemodes\falloutrp\schema\aid",
+    "junk": r"E:\GMOD\Server\garrysmod\gamemodes\falloutrp\schema\junk",
 }
 
 def extract_braced(text, start):
