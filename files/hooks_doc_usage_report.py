@@ -15,11 +15,14 @@ HOOK_CALL_RE = re.compile(r"hook\.Call\s*\(\s*([\"'])([^\"']+)\1")
 
 HOOK_ADD_RE = re.compile(r"hook\.Add\s*\(\s*([\"'])([^\"']+)\1")
 
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
+
 def read_lines(path: Path) -> List[str]:
     return read_text(path).splitlines()
+
 
 def collect_documented_hooks(doc_path: Path) -> Set[str]:
     hooks: Set[str] = set()
@@ -29,13 +32,18 @@ def collect_documented_hooks(doc_path: Path) -> Set[str]:
             hooks.add(m.group(1))
     return hooks
 
+
 def walk_lua_files(root: Path) -> List[Path]:
     return [p for p in root.rglob("*.lua") if p.is_file()]
+
 
 def collect_matches(rx: re.Pattern, text: str) -> List[str]:
     return [m.group(2) for m in rx.finditer(text)]
 
-def collect_used_hooks(root: Path) -> Tuple[Set[str], Dict[str, List[Tuple[Path, int]]]]:
+
+def collect_used_hooks(
+    root: Path,
+) -> Tuple[Set[str], Dict[str, List[Tuple[Path, int]]]]:
     hooks: Set[str] = set()
     locations: Dict[str, List[Tuple[Path, int]]] = {}
     for lua in walk_lua_files(root):
@@ -49,7 +57,10 @@ def collect_used_hooks(root: Path) -> Tuple[Set[str], Dict[str, List[Tuple[Path,
                     locations.setdefault(name, []).append((lua, idx))
     return hooks, locations
 
-def collect_consumed_hooks(root: Path) -> Tuple[Set[str], Dict[str, List[Tuple[Path, int]]]]:
+
+def collect_consumed_hooks(
+    root: Path,
+) -> Tuple[Set[str], Dict[str, List[Tuple[Path, int]]]]:
     hooks: Set[str] = set()
     locations: Dict[str, List[Tuple[Path, int]]] = {}
     for lua in walk_lua_files(root):
@@ -62,11 +73,13 @@ def collect_consumed_hooks(root: Path) -> Tuple[Set[str], Dict[str, List[Tuple[P
                 locations.setdefault(name, []).append((lua, idx))
     return hooks, locations
 
+
 def rel(p: Path, base: Path) -> str:
     try:
         return str(p.relative_to(base))
     except Exception:
         return str(p)
+
 
 def write_report(
     doc_file: Path,
@@ -97,7 +110,9 @@ def write_report(
     lines.append(f"- Documented but NOT used: {len(documented_not_used)}")
     lines.append("")
 
-    def emit_with_locations(title: str, names: List[str], locs: Dict[str, List[Tuple[Path, int]]]):
+    def emit_with_locations(
+        title: str, names: List[str], locs: Dict[str, List[Tuple[Path, int]]]
+    ):
         lines.append(f"### {title} ({len(names)})\n")
         if not names:
             lines.append("_None_\n")
@@ -126,10 +141,15 @@ def write_report(
     emit_with_locations("Used and documented", used_and_documented, used_locs)
     emit_with_locations("Used but NOT documented", used_not_documented, used_locs)
     emit_list("Documented but NOT used (stale?)", documented_not_used)
-    emit_with_locations("Listeners present but never fired (hook.Add only)", consumed_not_used, consumed_locs)
+    emit_with_locations(
+        "Listeners present but never fired (hook.Add only)",
+        consumed_not_used,
+        consumed_locs,
+    )
 
     out_file.write_text("\n".join(lines), encoding="utf-8")
     print(f"Wrote report to: {out_file}")
+
 
 def main():
     doc_file = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(DOC_FILE)
@@ -157,6 +177,7 @@ def main():
         consumed=consumed,
         consumed_locs=consumed_locs,
     )
+
 
 if __name__ == "__main__":
     main()

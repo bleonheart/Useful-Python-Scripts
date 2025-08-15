@@ -3,26 +3,34 @@ import sys
 from pathlib import Path
 
 DEFAULT_GAMEMODE_ROOT = Path(r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\gamemode")
-DEFAULT_DOC_MD = Path(r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\documentation\\docs\\hooks\\gamemode_hooks.md")
+DEFAULT_DOC_MD = Path(
+    r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\documentation\\docs\\hooks\\gamemode_hooks.md"
+)
 
 root = DEFAULT_GAMEMODE_ROOT
 doc_path = DEFAULT_DOC_MD
 hooks_out_path = root / "unique_hooks.txt"
 missing_out_path = doc_path.parent / "hooks_missing_from_docs.txt"
 
-module_pat = re.compile(r'^\s*function\s+MODULE\s*[:.]\s*([A-Za-z_]\w*)\s*\(', re.MULTILINE)
-gm_pat = re.compile(r'^\s*function\s+GM\s*[:.]\s*([A-Za-z_]\w*)\s*\(', re.MULTILINE)
-schema_pat = re.compile(r'^\s*function\s+SCHEMA\s*[:.]\s*([A-Za-z_]\w*)\s*\(', re.MULTILINE)
+module_pat = re.compile(
+    r"^\s*function\s+MODULE\s*[:.]\s*([A-Za-z_]\w*)\s*\(", re.MULTILINE
+)
+gm_pat = re.compile(r"^\s*function\s+GM\s*[:.]\s*([A-Za-z_]\w*)\s*\(", re.MULTILINE)
+schema_pat = re.compile(
+    r"^\s*function\s+SCHEMA\s*[:.]\s*([A-Za-z_]\w*)\s*\(", re.MULTILINE
+)
 hook_add_pat = re.compile(r'hook\s*\.\s*Add\s*\(\s*([\'"])([^\'"]+)\1')
 hook_run_pat = re.compile(r'hook\s*\.\s*Run\s*\(\s*([\'"])([^\'"]+)\1')
-doc_hook_pat = re.compile(r'^\s*###\s+`?([A-Za-z_][\w:]*)`?\s*$', re.MULTILINE)
-marker_pat = re.compile(r'^\s*###\s+XXXXXXXXXXXX\s*$', re.MULTILINE)
+doc_hook_pat = re.compile(r"^\s*###\s+`?([A-Za-z_][\w:]*)`?\s*$", re.MULTILINE)
+marker_pat = re.compile(r"^\s*###\s+XXXXXXXXXXXX\s*$", re.MULTILINE)
+
 
 def prompt_bool(msg, default=False):
     s = input(f"{msg} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
     if not s:
         return default
     return s in ("y", "yes")
+
 
 def scan_hooks(root_path):
     names = set()
@@ -38,12 +46,14 @@ def scan_hooks(root_path):
         names.update(t[1] for t in hook_run_pat.findall(s))
     return set(sorted(names, key=str.lower))
 
+
 def read_documented_hooks(path):
     try:
         doc = path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         return "", set()
     return doc, set(doc_hook_pat.findall(doc))
+
 
 def write_hooks_file(hooks, path):
     try:
@@ -53,14 +63,19 @@ def write_hooks_file(hooks, path):
         print(f"Failed to write hooks file: {e}")
         return False
 
+
 def write_missing_file(missing, path):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(sorted(missing, key=str.lower)) + ("\n" if missing else ""), encoding="utf-8")
+        path.write_text(
+            "\n".join(sorted(missing, key=str.lower)) + ("\n" if missing else ""),
+            encoding="utf-8",
+        )
         return True
     except Exception as e:
         print(f"Failed to write missing comparison: {e}")
         return False
+
 
 def update_docs_file(doc, documented, missing, path):
     if not missing:
@@ -81,6 +96,7 @@ def update_docs_file(doc, documented, missing, path):
     except Exception as e:
         print(f"Failed to update documentation: {e}")
         return False
+
 
 def main():
     hooks = scan_hooks(root)
@@ -104,6 +120,7 @@ def main():
         if not ok:
             sys.exit(1)
         print(f"Documentation updated at {doc_path}.")
+
 
 if __name__ == "__main__":
     main()

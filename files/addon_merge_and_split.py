@@ -1,20 +1,26 @@
+import logging
 import shutil
 import sys
-import logging
 from pathlib import Path
 
 DEFAULT_SOURCE_PATH = Path(r"C:\Users\David\Desktop\backup")
 DEFAULT_DESTINATION_PATH = Path(r"C:\Users\David\Desktop\Merged")
 DEFAULT_MAX_PACK_SIZE = int(1.9 * 1024**3)
 
+
 def get_paths():
     source_default = DEFAULT_SOURCE_PATH
     destination_default = DEFAULT_DESTINATION_PATH
-    src_input = input(f"Enter the SOURCE path or press Enter to use [{source_default}]: ").strip()
-    dst_input = input(f"Enter the DESTINATION path or press Enter to use [{destination_default}]: ").strip()
+    src_input = input(
+        f"Enter the SOURCE path or press Enter to use [{source_default}]: "
+    ).strip()
+    dst_input = input(
+        f"Enter the DESTINATION path or press Enter to use [{destination_default}]: "
+    ).strip()
     source = Path(src_input) if src_input else source_default
     destination = Path(dst_input) if dst_input else destination_default
     return source, destination
+
 
 def merge_folders(source: Path, destination: Path):
     if not source.is_dir():
@@ -48,6 +54,7 @@ def merge_folders(source: Path, destination: Path):
     logging.info("Duplicates skipped: %d", duplicates)
     logging.info("Potential space saved: %.2f KB", space_saved / 1024)
 
+
 def split_into_packs(destination: Path, max_pack_size: int):
     pack_index = 1
     current_size = 0
@@ -67,6 +74,7 @@ def split_into_packs(destination: Path, max_pack_size: int):
             logging.warning("Failed to copy %s to pack %d: %s", file, pack_index, e)
     logging.info("Splitting complete. Packs created under %s", destination)
 
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     source, destination = get_paths()
@@ -74,6 +82,7 @@ def main():
     merge_folders(source, destination)
     logging.info("Starting split into packs")
     split_into_packs(destination, DEFAULT_MAX_PACK_SIZE)
+
 
 if __name__ == "__main__":
     main()

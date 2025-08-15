@@ -1,5 +1,5 @@
-import os
 import glob
+import os
 import re
 import sys
 
@@ -7,6 +7,7 @@ folder_table = {
     "aid": r"E:\GMOD\Server\garrysmod\gamemodes\falloutrp\schema\aid",
     "junk": r"E:\GMOD\Server\garrysmod\gamemodes\falloutrp\schema\junk",
 }
+
 
 def extract_braced(text, start):
     count = 0
@@ -16,8 +17,9 @@ def extract_braced(text, start):
         elif ch == "}":
             count -= 1
             if count == 0:
-                return text[start:i+1]
+                return text[start : i + 1]
     return None
+
 
 def extract_all_fields(text):
     fields = {}
@@ -35,6 +37,7 @@ def extract_all_fields(text):
         if value:
             fields[name] = value.strip()
     return fields
+
 
 for alias, folder in folder_table.items():
     if not os.path.isdir(folder):
@@ -66,4 +69,4 @@ for alias, folder in folder_table.items():
             f.write(table_text)
     except Exception as e:
         sys.exit(f'Error writing "{out}": {e}')
-    print(f'Processed {len(entries)} items into {out}')
+    print(f"Processed {len(entries)} items into {out}")

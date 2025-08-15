@@ -13,7 +13,9 @@ MODULES_DIR = r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\gitmodules"
 
 
 def extract_used_privileges_in_dir(base_dir: str) -> list[str]:
-    pattern = re.compile(r"[:.]hasPrivilege\s*\(\s*(['\"])([^'\"\s)]+)\1\s*\)", re.IGNORECASE | re.DOTALL)
+    pattern = re.compile(
+        r"[:.]hasPrivilege\s*\(\s*(['\"])([^'\"\s)]+)\1\s*\)", re.IGNORECASE | re.DOTALL
+    )
     privileges: set[str] = set()
     for root, _, files in os.walk(base_dir):
         for fname in files:
@@ -41,11 +43,21 @@ def load_localizations() -> dict[str, str]:
             content = fh.read()
         for k, v in re.findall(r'^\s*(\w+)\s*=\s*"(.*?)"\s*$', content, re.MULTILINE):
             localizations[k] = v
-        for k, v in re.findall(r'^\s*L\.\s*(\w+)\s*=\s*"(.*?)"\s*$', content, re.MULTILINE):
+        for k, v in re.findall(
+            r'^\s*L\.\s*(\w+)\s*=\s*"(.*?)"\s*$', content, re.MULTILINE
+        ):
             localizations[k] = v
-        for k, v in re.findall(r'L\[\s*["\']([^"\']+)["\']\s*\]\s*=\s*["\']([^"\']*)["\']', content, re.MULTILINE):
+        for k, v in re.findall(
+            r'L\[\s*["\']([^"\']+)["\']\s*\]\s*=\s*["\']([^"\']*)["\']',
+            content,
+            re.MULTILINE,
+        ):
             localizations[k] = v
-        for k, v in re.findall(r'lia\.(?:lang|language)\.Add\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']*)["\']\s*\)', content, re.IGNORECASE):
+        for k, v in re.findall(
+            r'lia\.(?:lang|language)\.Add\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']*)["\']\s*\)',
+            content,
+            re.IGNORECASE,
+        ):
             localizations[k] = v
     except OSError:
         pass
@@ -95,7 +107,7 @@ def extract_ids_from_privileges_blocks(content: str) -> list[str]:
     ids: set[str] = set()
     start_pos = 0
     while True:
-        m = re.search(r'\bPrivileges\s*=\s*\{', content[start_pos:], re.IGNORECASE)
+        m = re.search(r"\bPrivileges\s*=\s*\{", content[start_pos:], re.IGNORECASE)
         if not m:
             break
         block_start = start_pos + m.end() - 1
@@ -127,7 +139,7 @@ def extract_ids_from_privileges_blocks(content: str) -> list[str]:
             i += 1
         else:
             block_end = len(content)
-        block = content[block_start:block_end + 1]
+        block = content[block_start : block_end + 1]
         for pid in re.findall(r'(?i)\bID\s*=\s*["\']([^"\']+)["\']', block):
             ids.add(pid)
         start_pos = block_end + 1
@@ -155,7 +167,9 @@ def extract_registered_ids_from_lua() -> list[str]:
     return extract_registered_ids_from_lua_dir(GAMEMODE_DIR)
 
 
-def build_framework_report(used: list[str], registered: list[str], localizations: dict[str, str]) -> dict:
+def build_framework_report(
+    used: list[str], registered: list[str], localizations: dict[str, str]
+) -> dict:
     used_set = set(used)
     registered_set = set(registered)
     missing = sorted(used_set - registered_set)
@@ -167,10 +181,14 @@ def build_framework_report(used: list[str], registered: list[str], localizations
             "used_in_code": len(used),
             "registered": len(registered),
             "used_but_not_registered": len(missing),
-            "registered_but_not_used": len(unused)
+            "registered_but_not_used": len(unused),
         },
-        "used_but_not_registered": [{"id": p, "name": localizations.get(p, "")} for p in missing],
-        "registered_but_not_used": [{"id": p, "name": localizations.get(p, "")} for p in unused]
+        "used_but_not_registered": [
+            {"id": p, "name": localizations.get(p, "")} for p in missing
+        ],
+        "registered_but_not_used": [
+            {"id": p, "name": localizations.get(p, "")} for p in unused
+        ],
     }
 
 
@@ -197,7 +215,9 @@ def discover_modules(modules_root: str) -> list[tuple[str, str]]:
     return modules
 
 
-def build_module_reports(modules_root: str, framework_registered: list[str], localizations: dict[str, str]) -> list[dict]:
+def build_module_reports(
+    modules_root: str, framework_registered: list[str], localizations: dict[str, str]
+) -> list[dict]:
     reports: list[dict] = []
     modules = discover_modules(modules_root)
     fr_set = set(framework_registered)
@@ -206,20 +226,26 @@ def build_module_reports(modules_root: str, framework_registered: list[str], loc
         reg_ids = extract_registered_ids_from_lua_dir(path)
         allowed = fr_set | set(reg_ids)
         missing = sorted(set(used) - allowed)
-        reports.append({
-            "name": name,
-            "path": path,
-            "counts": {
-                "used_in_code": len(used),
-                "registered_in_module": len(reg_ids),
-                "missing_registrations": len(missing)
-            },
-            "used_but_not_registered": [{"id": p, "name": localizations.get(p, "")} for p in missing]
-        })
+        reports.append(
+            {
+                "name": name,
+                "path": path,
+                "counts": {
+                    "used_in_code": len(used),
+                    "registered_in_module": len(reg_ids),
+                    "missing_registrations": len(missing),
+                },
+                "used_but_not_registered": [
+                    {"id": p, "name": localizations.get(p, "")} for p in missing
+                ],
+            }
+        )
     return reports
 
 
-def write_markdown_report(framework: dict, modules: list[dict], modules_root: str, path: str) -> None:
+def write_markdown_report(
+    framework: dict, modules: list[dict], modules_root: str, path: str
+) -> None:
     lines: list[str] = []
     lines.append("# Lilia Privilege Report")
     lines.append("")
