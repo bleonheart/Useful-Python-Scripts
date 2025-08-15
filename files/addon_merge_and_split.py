@@ -3,10 +3,9 @@ import sys
 import logging
 from pathlib import Path
 
-# ===== User-configurable defaults =====
 DEFAULT_SOURCE_PATH = Path(r"C:\Users\David\Desktop\backup")
 DEFAULT_DESTINATION_PATH = Path(r"C:\Users\David\Desktop\Merged")
-DEFAULT_MAX_PACK_SIZE = int(1.9 * 1024**3)  # ~1.9 GB
+DEFAULT_MAX_PACK_SIZE = int(1.9 * 1024**3)
 
 def get_paths():
     source_default = DEFAULT_SOURCE_PATH

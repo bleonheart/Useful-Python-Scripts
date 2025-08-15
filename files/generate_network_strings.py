@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
 import re
 import sys
 from pathlib import Path
 
-# User-configurable defaults
 DEFAULT_LUA_ROOT = Path(r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode")
 DEFAULT_OUTPUT_LUA = Path("network_strings.lua")
 

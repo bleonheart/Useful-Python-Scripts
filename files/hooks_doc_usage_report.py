@@ -1,4 +1,3 @@
-# save as: C:\Users\David\Desktop\generate_hook_report.py
 import re
 import sys
 from pathlib import Path
@@ -8,16 +7,12 @@ DOC_FILE = r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\documentation\docs\hooks\g
 CODE_ROOT = r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode"
 OUTPUT_REPORT = r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\hook_report.md"
 
-# Docs: "### HookName"
 DOC_HEADING_RE = re.compile(r"^\s*###\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 
-# Producers: hook.Run("HookName", ...)
 HOOK_RUN_RE = re.compile(r"hook\.Run\s*\(\s*([\"'])([^\"']+)\1")
 
-# Optional extra: hook.Call("HookName", ...)
 HOOK_CALL_RE = re.compile(r"hook\.Call\s*\(\s*([\"'])([^\"']+)\1")
 
-# Consumers (for reference): hook.Add("HookName", ...)
 HOOK_ADD_RE = re.compile(r"hook\.Add\s*\(\s*([\"'])([^\"']+)\1")
 
 def read_text(path: Path) -> str:
@@ -87,7 +82,6 @@ def write_report(
     used_not_documented = sorted(used - documented)
     documented_not_used = sorted(documented - used)
 
-    # Extra insight: hooks referenced by hook.Add but never fired by hook.Run
     consumed_not_used = sorted((consumed - used))
 
     lines: List[str] = []

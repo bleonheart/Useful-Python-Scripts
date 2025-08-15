@@ -1,6 +1,5 @@
 import argparse, os, re, sys, datetime, shutil
 
-# User-configurable defaults
 DEFAULT_FRAMEWORK_GAMEMODE_DIR = r'E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode'
 DEFAULT_FRAMEWORK_LANGUAGES_DIR = r'E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode\languages'
 DEFAULT_MODULES_ROOT = r'E:\GMOD\Server\garrysmod\gamemodes\metrorp\gitmodules'
@@ -468,13 +467,10 @@ def iter_localization_calls(src):
                                     yield (key, num_extra, kind, i)
                                 i = endpos + 1
                                 continue
-                # Detect hook.Run("AddSection"/"AddTextField"/"AddBarField", ...)
                 if name == 'Run' and prev == '.':
-                    # Confirm it's hook.Run
                     p = i - 2
                     while p >= 0 and src[p].isspace():
                         p -= 1
-                    # Move back to start of identifier before '.'
                     q = p
                     while q >= 0 and (src[q] == '_' or src[q].isalnum()):
                         q -= 1
@@ -491,7 +487,6 @@ def iter_localization_calls(src):
                                     m = re.match(r'^\s*("([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])\s*$', args[0])
                                     if m:
                                         hook_name = unquote(m.group(1))
-                                        # Pull keys from specific hooks
                                         def yield_if_literal(expr, kindname, posi):
                                             mm = re.match(r'^\s*("([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])\s*$', expr)
                                             if mm:
@@ -499,17 +494,14 @@ def iter_localization_calls(src):
                                                 yield (yield_key, 0, kindname, posi)
                                         if hook_name in ('AddSection', 'AddTextField', 'AddBarField'):
                                             kindname = f'hook:{hook_name}'
-                                            # Common: section name at index 1
                                             if len(args) >= 2:
                                                 for tup in yield_if_literal(args[1], kindname, i):
                                                     yield tup
-                                            # Label positions: AddTextField idx 3, AddBarField idx 3
                                             if hook_name in ('AddTextField', 'AddBarField') and len(args) >= 4:
                                                 for tup in yield_if_literal(args[3], kindname, i):
                                                     yield tup
                                 i = endpos + 1
                                 continue
-                # Detect direct calls to AddSection/AddTextField/AddBarField (method or function)
                 if name in ('AddSection', 'AddTextField', 'AddBarField'):
                     kind = 'method:' + name if prev == ':' else 'func:' + name
                     k = j
@@ -523,21 +515,17 @@ def iter_localization_calls(src):
                                 mm = re.match(r'^\s*("([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])\s*$', expr)
                                 return unquote(mm.group(1)) if mm else None
                             if args:
-                                # First arg: section name
                                 if len(args) >= 1:
                                     k1 = yield_if_literal(args[0])
                                     if k1 is not None:
                                         yield (k1, 0, kind, i)
-                                # Third arg (index 2) is label text for Text/Bar fields
                                 if name in ('AddTextField', 'AddBarField') and len(args) >= 3:
                                     k2 = yield_if_literal(args[2])
                                     if k2 is not None:
                                         yield (k2, 0, kind, i)
                             i = endpos + 1
                             continue
-                # Detect lia.keybind.add(KEY_..., "keyName", ...)
                 if name == 'add' and prev == '.':
-                    # Backtrack to ensure chain is lia.keybind.add
                     p1 = i - 2
                     while p1 >= 0 and src[p1].isspace():
                         p1 -= 1
@@ -546,7 +534,6 @@ def iter_localization_calls(src):
                         q1 -= 1
                     ident2 = src[q1 + 1:p1 + 1]
                     if ident2 == 'keybind':
-                        # Expect another '.' and 'lia'
                         if q1 >= 0 and src[q1] == '.':
                             p0 = q1 - 1
                             while p0 >= 0 and src[p0].isspace():
@@ -816,7 +803,6 @@ def write_modules_md(f, modules, limit, modules_root):
     for m in mods:
         f.write(f'#### {m["name"]}\n\n')
         f.write(f'Language file: {md_code(m["language_file"])}\n\n')
-        # Keys already provided by framework
         provided = m.get('covered_by_framework', [])
         if provided:
             f.write('Keys provided by framework (consider reusing these)\n\n')
@@ -829,7 +815,6 @@ def write_modules_md(f, modules, limit, modules_root):
                 f.write(f'Showing first {limit} of {len(provided)}.\n\n')
         else:
             f.write('_No missing keys covered by framework._\n\n')
-        # Keys not found in framework
         missing_new = m.get('missing_not_in_framework', [])
         if missing_new:
             f.write('Keys not found in framework (add to module language file)\n\n')
@@ -839,7 +824,6 @@ def write_modules_md(f, modules, limit, modules_root):
         else:
             f.write('_No truly missing keys; all are provided by framework._\n\n')
 
-    # Conflicts across modules for this language
     key_to_defs = {}
     for m in modules:
         for k, v in (m.get('lang_map') or {}).items():
@@ -912,7 +896,6 @@ def write_modules_txt(f, modules, limit, modules_root):
         else:
             f.write('No truly missing keys; all are provided by framework.\n\n')
 
-    # Conflicts across modules for this language
     key_to_defs = {}
     for m in modules:
         for k, v in (m.get('lang_map') or {}).items():

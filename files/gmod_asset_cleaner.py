@@ -5,7 +5,6 @@ from collections import defaultdict, Counter
 from srctools.filesys import get_filesystem, RawFileSystem, FileSystemChain
 from srctools.mdl import Model
 
-# User-configurable defaults
 ROOT = r'C:\\Users\\Administrator\\Desktop\\gay'
 GMOD_DIR = r'D:\\SteamLibrary\\steamapps\\common\\GarrysMod\\garrysmod'
 SOUND_EXTS = {'.wav', '.mp3', '.ogg', '.flac', '.aac'}

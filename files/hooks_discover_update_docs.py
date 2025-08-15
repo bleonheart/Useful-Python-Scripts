@@ -2,7 +2,6 @@ import re
 import sys
 from pathlib import Path
 
-# User-configurable defaults
 DEFAULT_GAMEMODE_ROOT = Path(r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\gamemode")
 DEFAULT_DOC_MD = Path(r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\documentation\\docs\\hooks\\gamemode_hooks.md")
 

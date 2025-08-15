@@ -131,28 +131,23 @@ def main():
     flatten(ROOT)
     lua=read_lua()
     cats=gather()
-    # models
     before_models=sum(f.stat().st_size for _,f in cats['model'])
     used_models={k for k,f in cats['model'] if k+'.mdl' in lua}
     write_models(used_models)
     freed_models=delete_unused_space('model',cats,used_models)
     after_models=before_models-freed_models
-    # sounds
     before_sounds=sum(f.stat().st_size for _,f in cats['sound'])
     used_sounds={k for k,f in cats['sound'] if k in lua}
     freed_sounds=delete_unused_space('sound',cats,used_sounds)
     after_sounds=before_sounds-freed_sounds
-    # particles
     before_particles=sum(f.stat().st_size for _,f in cats['particle'])
     used_particles={k for k,f in cats['particle'] if k in lua}
     freed_particles=delete_unused_space('particle',cats,used_particles)
     after_particles=before_particles-freed_particles
-    # images
     before_images=sum(f.stat().st_size for _,f in cats['image'])
     used_images={k for k,f in cats['image'] if k in lua}
     freed_images=delete_unused_space('image',cats,used_images)
     after_images=before_images-freed_images
-    # materials
     keep=load_cdmaterials()
     before_materials=sum(f.stat().st_size for _,f in cats['material'])
     used_materials=write_materials(keep)
