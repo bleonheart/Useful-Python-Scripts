@@ -72,6 +72,10 @@ python files/lua_stack.py -s <source_dir> -o <output.lua>
 ```bash
 python files/lua_item_table_builder.py
 ```
+- `files/remove_lua_comments.py`: Remove Lua comments (line and block) from all `.lua` files under a directory.
+```bash
+python files/remove_lua_comments.py [directory_path]
+```
 - `files/strip_sh_prefix.py`: Remove the `sh_` prefix from `sh_*.lua` files.
 ```bash
 python files/strip_sh_prefix.py
