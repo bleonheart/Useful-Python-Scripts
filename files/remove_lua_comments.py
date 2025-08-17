@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-DEFAULT_DIRECTORY = Path(r"E:\GMOD\Server\garrysmod")
+DEFAULT_DIRECTORY = Path(r"E:\GMOD\Server\garrysmod\gamemodes\metrorp")
 
 
 def _match_long_bracket_opener(text: str, start_index: int):
