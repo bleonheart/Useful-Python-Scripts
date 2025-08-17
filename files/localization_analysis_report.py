@@ -730,7 +730,7 @@ def write_header(f, cols):
 
 
 def md_escape(s):
-    return str(s).replace("|", r"\|")
+    return str(s).replace("|", r"\|" )
 
 
 def md_code(s):
@@ -795,7 +795,12 @@ def write_framework_md(f, data, limit):
         ["Metric", "Value"],
         [
             ["Unique keys", len(data["keys"])],
-            ["Total key usages found", data["total_hits"]],
+            ["Total key usages found", data["total_hits"]]],
+    )
+    write_markdown_table(
+        f,
+        ["Metric", "Value"],
+        [
             ["Unused keys", len(data["unused"])],
             ["Undefined localization calls", len(data["undefined_rows"])],
             ["Argument mismatches", len(data["mismatch_rows"])],
@@ -1240,8 +1245,10 @@ def main():
         ext = os.path.splitext(a.out_pattern)[1].lower()
         fmt = "md" if ext in (".md", ".markdown") else "txt"
     any_unused = False
+    any_duplicates = False
     framework_results = []
     modules_results = []
+    per_lang_dup_counts = {}
     for fname in sorted(names):
         lf = os.path.join(a.framework_languages_dir, fname)
         lang = os.path.splitext(os.path.basename(lf))[0]
@@ -1262,6 +1269,10 @@ def main():
             covered = [k for k in missing if k in framework_key_set]
             missing_new = [k for k in missing if k not in framework_key_set]
             framework_values = {k: framework_lang_map.get(k, "") for k in covered}
+            module_defined_keys = set(mdata["lang_map"].keys())
+            duplicates_with_framework = sorted(module_defined_keys & framework_key_set)
+            if duplicates_with_framework:
+                any_duplicates = True
             modules.append(
                 {
                     "name": mname,
@@ -1273,6 +1284,7 @@ def main():
                     "framework_values": framework_values,
                     "unused": mdata["unused"],
                     "lang_map": mdata["lang_map"],
+                    "duplicates_with_framework": duplicates_with_framework,
                 }
             )
             if mdata["unused"]:
@@ -1304,6 +1316,7 @@ def main():
                 f.write("-------\n")
                 write_modules_txt(f, modules, a.limit, a.modules_root)
         print(out_report)
+        per_lang_dup_counts[lang] = sum(len(m["duplicates_with_framework"]) for m in modules)
     if any_unused:
         try:
             ans = (
@@ -1337,6 +1350,38 @@ def main():
             print("No deletions made.")
     else:
         print("No unused localizations found.")
+    for lang, framework in framework_results:
+        print(f'{lang}: framework unused keys = {len(framework["unused"])}')
+    total_dups = 0
+    for lang, _modules in modules_results:
+        cnt = per_lang_dup_counts.get(lang, 0)
+        total_dups += cnt
+        print(f"{lang}: duplicated module entries overlapping framework = {cnt}")
+    if total_dups > 0:
+        try:
+            ans = (
+                input("Remove duplicated module localization entries? [y/N]: ")
+                .strip()
+                .lower()
+            )
+        except EOFError:
+            ans = "n"
+        if ans in ("y", "yes"):
+            for lang, modules in modules_results:
+                for m in modules:
+                    dups = m.get("duplicates_with_framework") or []
+                    if not dups:
+                        continue
+                    replaced, removed = cleanup_language_file(
+                        m["language_file"], dups, m["lang_map"]
+                    )
+                    print(
+                        f'{lang}: module {m["name"]} de-duplicated ({replaced} table(s) rebuilt, {removed} standalone removed, {len(dups)} keys targeted)'
+                    )
+        else:
+            print("No duplicated entries removed.")
+    else:
+        print("No duplicated module localization entries found.")
 
 
 if __name__ == "__main__":
