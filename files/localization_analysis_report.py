@@ -10,6 +10,8 @@ DEFAULT_FRAMEWORK_LANGUAGES_DIR = (
     r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode\languages"
 )
 DEFAULT_MODULES_ROOT = r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\gitmodules"
+DEFAULT_MODULES_DIR = r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\modules"
+DEFAULT_DEVMODULES_DIR = r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\devmodules"
 DEFAULT_OUT_PATTERN = "localization_report_{name}.md"
 DEFAULT_LIMIT = 500
 
@@ -919,15 +921,18 @@ def write_framework_txt(f, data, limit):
 
 
 def write_modules_md(f, modules, limit, modules_root):
-    mods = [m for m in modules if m["missing"]]
+    # Only show modules with problems
+    mods = [m for m in modules if m["missing"] or m.get("duplicates_with_framework") or m.get("keys_duplicating_framework")]
     if not mods:
-        f.write("_No modules with missing keys._\n\n")
+        f.write("_No modules with localization problems._\n\n")
         return
     summary = []
     for m in mods:
         total_missing = len(m["missing"])
         covered = len(m.get("covered_by_framework", []))
         truly_missing = len(m.get("missing_not_in_framework", []))
+        duplicates = len(m.get("duplicates_with_framework", []))
+        duplicating_framework = len(m.get("keys_duplicating_framework", []))
         summary.append(
             [
                 md_code(m["name"]),
@@ -935,40 +940,71 @@ def write_modules_md(f, modules, limit, modules_root):
                 total_missing,
                 covered,
                 truly_missing,
+                duplicates,
+                duplicating_framework,
             ]
         )
     f.write("### Modules Summary\n\n")
     write_markdown_table(
         f,
-        ["Module", "Path", "Missing (total)", "Provided by framework", "Truly missing"],
+        ["Module", "Path", "Missing (total)", "Framework covers", "Truly missing", "Duplicates with framework", "Keys duplicating framework"],
         summary,
     )
     for m in mods:
         f.write(f'#### {m["name"]}\n\n')
         f.write(f'Language file: {md_code(m["language_file"])}\n\n')
-        provided = m.get("covered_by_framework", [])
-        if provided:
-            f.write("Keys provided by framework (consider reusing these)\n\n")
+        
+        # Show missing keys section only if there are missing keys
+        if m["missing"]:
+            provided = m.get("covered_by_framework", [])
+            if provided:
+                f.write("Missing keys that framework provides (use framework values instead of adding to module)\n\n")
+                rows = []
+                for k in provided[:limit]:
+                    val = m.get("framework_values", {}).get(k, "")
+                    rows.append([md_code(k), md_code(val)])
+                write_markdown_table(f, ["Key", "Framework value"], rows)
+                if len(provided) > limit:
+                    f.write(f"Showing first {limit} of {len(provided)}.\n\n")
+            else:
+                f.write("_No missing keys covered by framework._\n\n")
+            
+            missing_new = m.get("missing_not_in_framework", [])
+            if missing_new:
+                f.write("Keys not found in framework (add to module language file)\n\n")
+                write_markdown_table(
+                    f, ["Key"], [[md_code(k)] for k in missing_new[:limit]]
+                )
+                if len(missing_new) > limit:
+                    f.write(f"Showing first {limit} of {len(missing_new)}.\n\n")
+            else:
+                f.write("_No truly missing keys; all are provided by framework._\n\n")
+        
+        # Show duplicates section only if there are duplicates
+        duplicates = m.get("duplicates_with_framework", [])
+        if duplicates:
+            f.write("Keys duplicated with framework (consider removing these)\n\n")
             rows = []
-            for k in provided[:limit]:
-                val = m.get("framework_values", {}).get(k, "")
+            for k in duplicates[:limit]:
+                val = m.get("lang_map", {}).get(k, "")
                 rows.append([md_code(k), md_code(val)])
-            write_markdown_table(f, ["Key", "Framework value"], rows)
-            if len(provided) > limit:
-                f.write(f"Showing first {limit} of {len(provided)}.\n\n")
-        else:
-            f.write("_No missing keys covered by framework._\n\n")
-        missing_new = m.get("missing_not_in_framework", [])
-        if missing_new:
-            f.write("Keys not found in framework (add to module language file)\n\n")
-            write_markdown_table(
-                f, ["Key"], [[md_code(k)] for k in missing_new[:limit]]
-            )
-            if len(missing_new) > limit:
-                f.write(f"Showing first {limit} of {len(missing_new)}.\n\n")
-        else:
-            f.write("_No truly missing keys; all are provided by framework._\n\n")
+            write_markdown_table(f, ["Key", "Module value"], rows)
+            if len(duplicates) > limit:
+                f.write(f"Showing first {limit} of {len(duplicates)}.\n\n")
+        
+        # Show keys duplicating framework section
+        duplicating_framework = m.get("keys_duplicating_framework", [])
+        if duplicating_framework:
+            f.write("Keys duplicating framework (can be removed from module)\n\n")
+            rows = []
+            for k in duplicating_framework[:limit]:
+                val = m.get("lang_map", {}).get(k, "")
+                rows.append([md_code(k), md_code(val)])
+            write_markdown_table(f, ["Key", "Module value"], rows)
+            if len(duplicating_framework) > limit:
+                f.write(f"Showing first {limit} of {len(duplicating_framework)}.\n\n")
 
+    # Only show key conflicts if there are actual conflicts
     key_to_defs = {}
     for m in modules:
         for k, v in (m.get("lang_map") or {}).items():
@@ -979,10 +1015,9 @@ def write_modules_md(f, modules, limit, modules_root):
         for k, lst in key_to_defs.items()
         if len(lst) > 1 and len({v for _, v in lst}) > 1
     ]
-    f.write("### Module Key Conflicts\n\n")
-    if not duplicate_keys:
-        f.write("_None_\n\n")
-    else:
+    
+    if duplicate_keys:
+        f.write("### Module Key Conflicts\n\n")
         write_markdown_table(
             f,
             ["Metric", "Value"],
@@ -1009,51 +1044,83 @@ def write_modules_md(f, modules, limit, modules_root):
 
 
 def write_modules_txt(f, modules, limit, modules_root):
-    mods = [m for m in modules if m["missing"]]
+    # Only show modules with problems
+    mods = [m for m in modules if m["missing"] or m.get("duplicates_with_framework") or m.get("keys_duplicating_framework")]
     if not mods:
-        f.write("No modules with missing keys.\n\n")
+        f.write("No modules with localization problems.\n\n")
         return
     f.write("Modules Summary\n")
     f.write("---------------\n")
     write_header(
-        f, ["module", "path", "missing_total", "provided_by_framework", "truly_missing"]
+        f, ["module", "path", "missing_total", "framework_covers", "truly_missing", "duplicates_with_framework", "keys_duplicating_framework"]
     )
     for m in mods:
         total_missing = len(m["missing"])
         covered = len(m.get("covered_by_framework", []))
         truly_missing = len(m.get("missing_not_in_framework", []))
+        duplicates = len(m.get("duplicates_with_framework", []))
+        duplicating_framework = len(m.get("keys_duplicating_framework", []))
         f.write(
-            f'{m["name"]}\t{relpath(m["module_dir"], modules_root)}\t{total_missing}\t{covered}\t{truly_missing}\n'
+            f'{m["name"]}\t{relpath(m["module_dir"], modules_root)}\t{total_missing}\t{covered}\t{truly_missing}\t{duplicates}\t{duplicating_framework}\n'
         )
     f.write("\n")
     for m in mods:
         f.write(f'{m["name"]}\n')
         f.write("-" * len(m["name"]) + "\n")
         f.write(f'Language file: {m["language_file"]}\n')
-        provided = m.get("covered_by_framework", [])
-        if provided:
-            f.write("Keys provided by framework (consider reusing these)\n")
-            write_header(f, ["key", "framework_value"])
-            for k in provided[:limit]:
-                val = m.get("framework_values", {}).get(k, "")
+        
+        # Show missing keys section only if there are missing keys
+        if m["missing"]:
+            provided = m.get("covered_by_framework", [])
+            if provided:
+                f.write("Missing keys that framework provides (use framework values instead of adding to module)\n")
+                write_header(f, ["key", "framework_value"])
+                for k in provided[:limit]:
+                    val = m.get("framework_values", {}).get(k, "")
+                    f.write(f"{k}\t{val}\n")
+                if len(provided) > limit:
+                    f.write(f"... ({len(provided) - limit} more)\n")
+                f.write("\n")
+            else:
+                f.write("No missing keys covered by framework.\n\n")
+            
+            missing_new = m.get("missing_not_in_framework", [])
+            if missing_new:
+                f.write("Keys not found in framework (add to module language file)\n")
+                write_header(f, ["key"])
+                for k in missing_new[:limit]:
+                    f.write(f"{k}\n")
+                if len(missing_new) > limit:
+                    f.write(f"... ({len(missing_new) - limit} more)\n")
+                f.write("\n")
+            else:
+                f.write("No truly missing keys; all are provided by framework.\n\n")
+        
+        # Show duplicates section only if there are duplicates
+        duplicates = m.get("duplicates_with_framework", [])
+        if duplicates:
+            f.write("Keys duplicated with framework (consider removing these)\n")
+            write_header(f, ["key", "module_value"])
+            for k in duplicates[:limit]:
+                val = m.get("lang_map", {}).get(k, "")
                 f.write(f"{k}\t{val}\n")
-            if len(provided) > limit:
-                f.write(f"... ({len(provided) - limit} more)\n")
+            if len(duplicates) > limit:
+                f.write(f"... ({len(duplicates) - limit} more)\n")
             f.write("\n")
-        else:
-            f.write("No missing keys covered by framework.\n\n")
-        missing_new = m.get("missing_not_in_framework", [])
-        if missing_new:
-            f.write("Keys not found in framework (add to module language file)\n")
-            write_header(f, ["key"])
-            for k in missing_new[:limit]:
-                f.write(f"{k}\n")
-            if len(missing_new) > limit:
-                f.write(f"... ({len(missing_new) - limit} more)\n")
+        
+        # Show keys duplicating framework section
+        duplicating_framework = m.get("keys_duplicating_framework", [])
+        if duplicating_framework:
+            f.write("Keys duplicating framework (can be removed from module)\n")
+            write_header(f, ["key", "module_value"])
+            for k in duplicating_framework[:limit]:
+                val = m.get("lang_map", {}).get(k, "")
+                f.write(f"{k}\t{val}\n")
+            if len(duplicating_framework) > limit:
+                f.write(f"... ({len(duplicating_framework) - limit} more)\n")
             f.write("\n")
-        else:
-            f.write("No truly missing keys; all are provided by framework.\n\n")
 
+    # Only show key conflicts if there are actual conflicts
     key_to_defs = {}
     for m in modules:
         for k, v in (m.get("lang_map") or {}).items():
@@ -1064,11 +1131,10 @@ def write_modules_txt(f, modules, limit, modules_root):
         for k, lst in key_to_defs.items()
         if len(lst) > 1 and len({v for _, v in lst}) > 1
     ]
-    f.write("Module Key Conflicts\n")
-    f.write("---------------------\n")
-    if not duplicate_keys:
-        f.write("None\n\n")
-    else:
+    
+    if duplicate_keys:
+        f.write("Module Key Conflicts\n")
+        f.write("---------------------\n")
         write_header(f, ["metric", "value"])
         f.write(
             f"Duplicate keys (same ID in multiple modules)\t{len(duplicate_keys)}\n"
@@ -1113,75 +1179,123 @@ def lua_quote(s):
 def get_table_keys(body):
     keys = []
     seen = set()
+    
+    # Pattern 1: key = "value" or key = 'value' (simple identifier keys, with or without comma)
     r_tbl1 = re.compile(
-        r'(\w+)\s*=\s*(?:("([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\]))', re.S
+        r'^\s*(\w+)\s*=\s*(?:"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])\s*,?\s*$', 
+        re.M | re.S
     )
+    
+    # Pattern 2: ["key"] = "value" or ['key'] = 'value' (string literal keys, with or without comma)
     r_tbl2 = re.compile(
-        r'\[\s*(["\'])(.*?)\1\s*\]\s*=\s*(?:("([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\]))',
-        re.S,
+        r'^\s*\[\s*(["\'])(.*?)\1\s*\]\s*=\s*(?:"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])\s*,?\s*$', 
+        re.M | re.S
     )
+    
     for t in r_tbl1.finditer(body):
         k = t.group(1)
         if k not in seen:
             seen.add(k)
             keys.append(k)
+    
     for t in r_tbl2.finditer(body):
         k = t.group(2)
         if k not in seen:
             seen.add(k)
             keys.append(k)
+    
     return keys
 
 
 def delete_standalone_assignments(src, delete_keys):
+    # Pattern 1: LANGUAGE.key = "value" (standalone, with or without comma)
     dot = re.compile(
-        r'(^[ \t]*LANGUAGE\.(\w+)\s*=\s*(?:"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])[ \t]*\r?\n?)',
+        r'(^[ \t]*LANGUAGE\.(\w+)\s*=\s*(?:"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])\s*,?\s*[ \t]*\r?\n?)',
         re.M | re.S,
     )
+    
+    # Pattern 2: LANGUAGE["key"] = "value" (standalone, with or without comma)
     idx = re.compile(
-        r'(^[ \t]*LANGUAGE\[\s*(["\'])(.*?)\2\s*\]\s*=\s*(?:"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])[ \t]*\r?\n?)',
+        r'(^[ \t]*LANGUAGE\[\s*(["\'])(.*?)\2\s*\]\s*=\s*(?:"([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\'|\[=*\[.*?\]=*\])\s*,?\s*[ \t]*\r?\n?)',
         re.M | re.S,
     )
+    
     spans = []
     removed = 0
+    
+    # Find all matches for each pattern
     for m in dot.finditer(src):
         k = m.group(2)
         if k in delete_keys:
             spans.append((m.start(1), m.end(1)))
             removed += 1
+    
     for m in idx.finditer(src):
         k = m.group(3)
         if k in delete_keys:
             spans.append((m.start(1), m.end(1)))
             removed += 1
+    
     if not spans:
         return src, 0
+    
+    # Sort spans in reverse order to avoid index shifting issues
     spans.sort(reverse=True)
+    
+    # Remove overlapping spans (keep only the largest span for each position)
+    cleaned_spans = []
+    for span in spans:
+        start, end = span
+        # Check if this span overlaps with any existing spans
+        overlapping = False
+        for existing_start, existing_end in cleaned_spans:
+            if (start < existing_end and end > existing_start):
+                overlapping = True
+                break
+        if not overlapping:
+            cleaned_spans.append(span)
+    
+    # Sort cleaned spans in reverse order
+    cleaned_spans.sort(reverse=True)
+    
     s = src
-    for a, b in spans:
+    
+    # Remove all matched spans
+    for a, b in cleaned_spans:
         s = s[:a] + s[b:]
-    return s, removed
+    
+    return s, len(cleaned_spans)
 
 
 def replace_table_entries(src, keep_keys, values):
     r_tbl = re.compile(r"(^[ \t]*LANGUAGE\s*=\s*\{)", re.M)
     pos = 0
     total_replaced = 0
+    
     while True:
         m = r_tbl.search(src, pos)
         if not m:
             break
+            
         open_brace = src.find("{", m.start())
         body, endpos = extract_block(src, open_brace, "{", "}")
+        
         if body is None:
             pos = m.end()
             continue
+            
         line_start = src.rfind("\n", 0, m.start())
         line_start = 0 if line_start < 0 else line_start + 1
         indent = src[line_start : m.start()]
         indent2 = indent + "    "
+        
+        # Extract all keys from the table body
         tbl_keys = get_table_keys(body)
+        
+        # Keep only the keys we want to preserve
         kept = [k for k in tbl_keys if k in keep_keys]
+        
+        # Build new table content
         lines = []
         for k in kept:
             if re.match(r"^[A-Za-z_]\w*$", k):
@@ -1190,13 +1304,228 @@ def replace_table_entries(src, keep_keys, values):
                 keyexpr = f'["{k}"]'
             v = values.get(k, "")
             lines.append(f"{indent2}{keyexpr} = {lua_quote(v)},")
+        
+        # Create new body
         new_body = ""
         if lines:
             new_body = "\n" + "\n".join(lines) + "\n" + indent
+        
+        # Replace the old table body with the new one
         src = src[: open_brace + 1] + new_body + src[endpos:]
         pos = open_brace + 1 + len(new_body)
         total_replaced += 1
+    
     return src, total_replaced
+
+
+def search_for_language_keys_in_code(module_dir, missing_keys):
+    """
+    Search for existing LANGUAGE key definitions in code files to see what format they use.
+    This helps debug why keys aren't being found for removal.
+    """
+    print(f"    Searching for LANGUAGE key definitions in {module_dir}...")
+    found_keys = {}
+    used_keys = {}
+    
+    # Also search for any file that contains "LANGUAGE" to see what's actually there
+    language_files = []
+    
+    for root, _, files in os.walk(module_dir):
+        for filename in files:
+            if not filename.lower().endswith('.lua'):
+                continue
+            
+            filepath = os.path.join(root, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                # Check if this file contains "LANGUAGE" at all
+                if 'LANGUAGE' in content:
+                    language_files.append((filepath, content))
+                
+                # Also check if this file contains any of the missing keys
+                for key in missing_keys:
+                    if key in content:
+                        print(f"      Found key '{key}' in {os.path.basename(filepath)}")
+                        # Show the lines containing this key
+                        lines = content.split('\n')
+                        for i, line in enumerate(lines, 1):
+                            if key in line:
+                                print(f"        Line {i}: {line.strip()}")
+                                if i > 5:  # Limit to first 5 lines per key
+                                    break
+                        print()
+                
+                # Look for various LANGUAGE key patterns (definitions)
+                patterns = [
+                    (rf'LANGUAGE\.(\w+)\s*=\s*["\'][^"\']*["\']', 'LANGUAGE.key = "value"'),
+                    (rf'LANGUAGE\[["\']([^"\']+)["\']\]\s*=\s*["\'][^"\']*["\']', 'LANGUAGE["key"] = "value"'),
+                    (rf'(\w+)\s*=\s*["\'][^"\']*["\'],?\s*$', 'key = "value" (in table)'),
+                    (rf'\[["\']([^"\']+)["\']\]\s*=\s*["\'][^"\']*["\'],?\s*$', '["key"] = "value" (in table)'),
+                ]
+                
+                for pattern, desc in patterns:
+                    matches = re.findall(pattern, content, re.MULTILINE)
+                    for match in matches:
+                        if isinstance(match, tuple):
+                            key = match[0]
+                        else:
+                            key = match
+                        
+                        if key in missing_keys:
+                            if key not in found_keys:
+                                found_keys[key] = []
+                            found_keys[key].append(f"{os.path.basename(filepath)} ({desc})")
+                
+                # Also look for key usage patterns (like L("key"), notifyLocalized("key"), etc.)
+                usage_patterns = [
+                    (rf'L\(["\']([^"\']+)["\']\)', 'L("key")'),
+                    (rf'notifyLocalized\(["\']([^"\']+)["\']\)', 'notifyLocalized("key")'),
+                    (rf'LANGUAGE\[["\']([^"\']+)["\']\]', 'LANGUAGE["key"]'),
+                    (rf'LANGUAGE\.(\w+)', 'LANGUAGE.key'),
+                ]
+                
+                for pattern, desc in usage_patterns:
+                    matches = re.findall(pattern, content, re.MULTILINE)
+                    for match in matches:
+                        if isinstance(match, tuple):
+                            key = match[0]
+                        else:
+                            key = match
+                        
+                        if key in missing_keys:
+                            if key not in used_keys:
+                                used_keys[key] = []
+                            used_keys[key].append(f"{os.path.basename(filepath)} ({desc})")
+                            
+            except Exception as e:
+                print(f"    Warning: Could not read {filepath}: {e}")
+                continue
+    
+    # Show what files contain "LANGUAGE" and their content
+    if language_files:
+        print(f"    Found {len(language_files)} files containing 'LANGUAGE':")
+        for filepath, content in language_files[:3]:  # Show first 3 files
+            print(f"      {os.path.basename(filepath)}:")
+            # Find lines containing LANGUAGE
+            lines = content.split('\n')
+            for i, line in enumerate(lines, 1):
+                if 'LANGUAGE' in line:
+                    print(f"        Line {i}: {line.strip()}")
+                    if i > 10:  # Limit to first 10 LANGUAGE lines per file
+                        print(f"        ... and more LANGUAGE lines")
+                        break
+            print()
+    
+    if found_keys:
+        print(f"    Found {len(found_keys)} missing keys DEFINED in code files:")
+        for key, locations in found_keys.items():
+            print(f"      {key}: {', '.join(locations)}")
+    else:
+        print(f"    No missing keys found DEFINED in code files.")
+    
+    if used_keys:
+        print(f"    Found {len(used_keys)} missing keys USED in code files:")
+        for key, locations in used_keys.items():
+            print(f"      {key}: {', '.join(locations)}")
+    else:
+        print(f"    No missing keys found USED in code files.")
+    
+    return found_keys, used_keys
+
+
+def remove_missing_keys_from_code(module_dir, missing_keys):
+    """
+    Scan code files in a module directory and remove references to missing keys that the framework provides.
+    Returns the number of references removed.
+    """
+    removed_count = 0
+    missing_keys_set = set(missing_keys)
+    
+    print(f"    Scanning {module_dir} for missing keys: {list(missing_keys_set)[:5]}...")
+    
+    for root, _, files in os.walk(module_dir):
+        for filename in files:
+            if not filename.lower().endswith('.lua'):
+                continue
+            
+            filepath = os.path.join(root, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                original_content = content
+                file_modified = False
+                
+                # Remove LANGUAGE.key = "value" assignments for missing keys
+                for key in missing_keys_set:
+                    # Pattern 1: LANGUAGE.key = "value" (standalone, with or without comma)
+                    patterns = [
+                        # Standalone without comma
+                        rf'^\s*LANGUAGE\.{re.escape(key)}\s*=\s*["\'][^"\']*["\']\s*$',
+                        # Standalone with comma
+                        rf'^\s*LANGUAGE\.{re.escape(key)}\s*=\s*["\'][^"\']*["\']\s*,',
+                        # In table without comma
+                        rf'^\s*{re.escape(key)}\s*=\s*["\'][^"\']*["\']\s*$',
+                        # In table with comma
+                        rf'^\s*{re.escape(key)}\s*=\s*["\'][^"\']*["\']\s*,',
+                        # Standalone bracket notation without comma
+                        rf'^\s*LANGUAGE\[["\']{re.escape(key)}["\']\]\s*=\s*["\'][^"\']*["\']\s*$',
+                        # Standalone bracket notation with comma
+                        rf'^\s*LANGUAGE\[["\']{re.escape(key)}["\']\]\s*=\s*["\'][^"\']*["\']\s*,',
+                        # In table bracket notation without comma
+                        rf'^\s*\[["\']{re.escape(key)}["\']\]\s*=\s*["\'][^"\']*["\']\s*$',
+                        # In table bracket notation with comma
+                        rf'^\s*\[["\']{re.escape(key)}["\']\]\s*=\s*["\'][^"\']*["\']\s*,',
+                    ]
+                    
+                    for pattern in patterns:
+                        if re.search(pattern, content, flags=re.MULTILINE):
+                            # For table entries, we need to check if they're inside a LANGUAGE table
+                            if 'LANGUAGE' in pattern and '[' in pattern:
+                                # This is a table entry, check context
+                                lines = content.split('\n')
+                                for i, line in enumerate(lines):
+                                    if re.match(pattern, line.strip()):
+                                        # Check if previous lines contain LANGUAGE = {
+                                        prev_lines = lines[max(0, i-5):i]
+                                        if any('LANGUAGE' in pl and '{' in pl for pl in prev_lines):
+                                            lines[i] = ''  # Remove the line
+                                            file_modified = True
+                                            print(f"      Removed: {key} = ... (in table)")
+                                            break
+                                if file_modified:
+                                    content = '\n'.join(lines)
+                            else:
+                                # This is a standalone assignment, remove it
+                                content = re.sub(pattern, '', content, flags=re.MULTILINE)
+                                file_modified = True
+                                print(f"      Removed: LANGUAGE.{key} = ... (standalone)")
+                
+                # Remove empty lines that might be left after removing assignments
+                if file_modified:
+                    # Remove multiple consecutive empty lines
+                    content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+                    # Remove empty lines at the beginning of the file
+                    content = re.sub(r'^\s*\n+', '', content)
+                    # Remove empty lines at the end of the file
+                    content = re.sub(r'\n+\s*$', '\n', content)
+                    
+                    # Write updated content directly (no backup)
+                    with open(filepath, 'w', encoding='utf-8', newline='') as f:
+                        f.write(content)
+                    
+                    # Count how many keys were removed from this file
+                    lines_removed = original_content.count('\n') - content.count('\n')
+                    removed_count += lines_removed
+                    print(f"      Modified {filepath} (removed {lines_removed} lines)")
+                    
+            except Exception as e:
+                print(f"    Warning: Could not process {filepath}: {e}")
+                continue
+    
+    return removed_count
 
 
 def cleanup_language_file(language_file, unused_keys, values):
@@ -1216,14 +1545,113 @@ def cleanup_language_file(language_file, unused_keys, values):
     return replaced, removed
 
 
+def debug_language_file_parsing(language_file, keys_to_delete):
+    """
+    Debug function to show exactly what's happening when parsing a language file.
+    This helps troubleshoot why keys aren't being deleted properly.
+    """
+    print(f"\n=== DEBUG: Parsing {os.path.basename(language_file)} ===")
+    
+    try:
+        with open(language_file, 'r', encoding='utf-8', errors='ignore') as f:
+            src = f.read()
+        
+        print(f"File size: {len(src)} characters")
+        print(f"Keys to delete: {keys_to_delete}")
+        
+        # Test the get_table_keys function
+        print("\n--- Testing get_table_keys function ---")
+        r_tbl_start = re.compile(r"\bLANGUAGE\s*=\s*\{", re.S)
+        pos = 0
+        table_count = 0
+        
+        while True:
+            m = r_tbl_start.search(src, pos)
+            if not m:
+                break
+                
+            open_brace = src.find("{", m.start())
+            body, endpos = extract_block(src, open_brace, "{", "}")
+            
+            if body is None:
+                pos = m.end()
+                continue
+                
+            table_count += 1
+            print(f"\nTable {table_count}:")
+            print(f"  Body length: {len(body)} characters")
+            print(f"  Body preview: {repr(body[:200])}...")
+            
+            # Extract keys using our function
+            extracted_keys = get_table_keys(body)
+            print(f"  Extracted keys: {extracted_keys}")
+            
+            # Check which keys to delete are found
+            found_keys_to_delete = [k for k in keys_to_delete if k in extracted_keys]
+            if found_keys_to_delete:
+                print(f"  Keys to delete found: {found_keys_to_delete}")
+            else:
+                print(f"  No keys to delete found in this table")
+            
+            pos = endpos + 1
+        
+        print(f"\nTotal tables found: {table_count}")
+        
+        # Test the delete_standalone_assignments function
+        print("\n--- Testing delete_standalone_assignments function ---")
+        for key in keys_to_delete:
+            # Look for standalone assignments
+            patterns = [
+                rf'LANGUAGE\.{re.escape(key)}\s*=',
+                rf'LANGUAGE\[["\']{re.escape(key)}["\']\]\s*=',
+            ]
+            
+            for pattern in patterns:
+                matches = re.findall(pattern, src)
+                if matches:
+                    print(f"  Found standalone assignment for '{key}': {len(matches)} matches")
+                    # Show the lines containing this pattern
+                    lines = src.split('\n')
+                    for i, line in enumerate(lines, 1):
+                        if re.search(pattern, line):
+                            print(f"    Line {i}: {line.strip()}")
+                            if i > 5:  # Limit to first 5 lines per key
+                                break
+        
+        # Test the replace_table_entries function
+        print("\n--- Testing replace_table_entries function ---")
+        # Create a dummy values dict with all keys
+        dummy_values = {k: f"DUMMY_VALUE_{k}" for k in keys_to_delete}
+        dummy_values.update({k: f"KEEP_VALUE_{k}" for k in ["keep1", "keep2"]})
+        
+        # Test with keep_keys being all keys except those to delete
+        all_keys = set(keys_to_delete) | {"keep1", "keep2"}
+        keep_keys = all_keys - set(keys_to_delete)
+        
+        print(f"  All keys: {all_keys}")
+        print(f"  Keep keys: {keep_keys}")
+        print(f"  Delete keys: {keys_to_delete}")
+        
+        # This would modify the source, so we'll just show what would happen
+        print("  (replace_table_entries would rebuild tables with keep_keys only)")
+        
+    except Exception as e:
+        print(f"Error debugging file: {e}")
+    
+    print("=== END DEBUG ===\n")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--framework-gamemode-dir", default=DEFAULT_FRAMEWORK_GAMEMODE_DIR)
     p.add_argument("--framework-languages-dir", default=DEFAULT_FRAMEWORK_LANGUAGES_DIR)
     p.add_argument("--modules-root", default=DEFAULT_MODULES_ROOT)
+    p.add_argument("--modules-dir", default=DEFAULT_MODULES_DIR)
+    p.add_argument("--devmodules-dir", default=DEFAULT_DEVMODULES_DIR)
     p.add_argument("--out-pattern", default=DEFAULT_OUT_PATTERN)
     p.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     p.add_argument("--format", choices=["auto", "md", "txt"], default="auto")
+    p.add_argument("--debug", action="store_true", help="Enable debug mode to troubleshoot deletion issues")
     a = p.parse_args()
     if not os.path.isdir(a.framework_gamemode_dir):
         print("Framework dir not found", file=sys.stderr)
@@ -1234,6 +1662,7 @@ def main():
     if not os.path.isdir(a.modules_root):
         print("Modules root not found", file=sys.stderr)
         sys.exit(1)
+    # Note: modules-dir and devmodules-dir are optional, so we don't exit if they don't exist
     names = [
         f for f in os.listdir(a.framework_languages_dir) if f.lower().endswith(".lua")
     ]
@@ -1257,43 +1686,54 @@ def main():
         framework_key_set = set(framework["keys"])
         framework_lang_map = framework["lang_map"]
         modules = []
-        for mname in sorted(os.listdir(a.modules_root)):
-            mdir = os.path.join(a.modules_root, mname)
-            if not os.path.isdir(mdir):
+        
+        # Process modules from all three directories
+        module_dirs = [a.modules_root, a.modules_dir, a.devmodules_dir]
+        for module_dir in module_dirs:
+            if not os.path.isdir(module_dir):
                 continue
-            mlf = os.path.join(mdir, "languages", f"{lang}.lua")
-            if not os.path.isfile(mlf):
-                continue
-            mdata = analyze_data(mlf, mdir)
-            missing = mdata["undefined_key_names"]
-            covered = [k for k in missing if k in framework_key_set]
-            missing_new = [k for k in missing if k not in framework_key_set]
-            framework_values = {k: framework_lang_map.get(k, "") for k in covered}
-            module_defined_keys = set(mdata["lang_map"].keys())
-            duplicates_with_framework = sorted(module_defined_keys & framework_key_set)
-            if duplicates_with_framework:
-                any_duplicates = True
-            modules.append(
-                {
-                    "name": mname,
-                    "module_dir": mdir,
-                    "language_file": mlf,
-                    "missing": missing,
-                    "covered_by_framework": covered,
-                    "missing_not_in_framework": missing_new,
-                    "framework_values": framework_values,
-                    "unused": mdata["unused"],
-                    "lang_map": mdata["lang_map"],
-                    "duplicates_with_framework": duplicates_with_framework,
-                }
-            )
-            if mdata["unused"]:
-                any_unused = True
+            for mname in sorted(os.listdir(module_dir)):
+                mdir = os.path.join(module_dir, mname)
+                if not os.path.isdir(mdir):
+                    continue
+                mlf = os.path.join(mdir, "languages", f"{lang}.lua")
+                if not os.path.isfile(mlf):
+                    continue
+                mdata = analyze_data(mlf, mdir)
+                missing = mdata["undefined_key_names"]
+                covered = [k for k in missing if k in framework_key_set]
+                missing_new = [k for k in missing if k not in framework_key_set]
+                framework_values = {k: framework_lang_map.get(k, "") for k in covered}
+                module_defined_keys = set(mdata["lang_map"].keys())
+                duplicates_with_framework = sorted(module_defined_keys & framework_key_set)
+                if duplicates_with_framework:
+                    any_duplicates = True
+                modules.append(
+                    {
+                        "name": f"{os.path.basename(module_dir)}/{mname}",
+                        "module_dir": mdir,
+                        "language_file": mlf,
+                        "missing": missing,
+                        "covered_by_framework": covered,  # Missing keys that framework provides
+                        "missing_not_in_framework": missing_new,
+                        "framework_values": framework_values,
+                        "unused": mdata["unused"],
+                        "lang_map": mdata["lang_map"],
+                        "duplicates_with_framework": duplicates_with_framework,  # Keys module needs that framework provides
+                        "keys_duplicating_framework": list(module_defined_keys & framework_key_set),  # Keys module has that framework also has
+                    }
+                )
+                if mdata["unused"]:
+                    any_unused = True
         modules_results.append((lang, modules))
         if framework["unused"]:
             any_unused = True
         out_report = a.out_pattern.format(name=lang)
         dt = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Filter modules to only include those with problems for the report
+        modules_with_problems = [m for m in modules if m["missing"] or m.get("duplicates_with_framework") or m.get("keys_duplicating_framework")]
+        
         if fmt == "md":
             with open(out_report, "w", encoding="utf-8", newline="") as f:
                 f.write(f"# Localization Analysis Report ({lang})\n\n")
@@ -1301,7 +1741,7 @@ def main():
                 f.write("## Framework\n\n")
                 write_framework_md(f, framework, a.limit)
                 f.write("## Modules\n\n")
-                write_modules_md(f, modules, a.limit, a.modules_root)
+                write_modules_md(f, modules_with_problems, a.limit, a.modules_root)
         else:
             with open(out_report, "w", encoding="utf-8", newline="") as f:
                 f.write(f"Localization Analysis Report ({lang})\n")
@@ -1314,7 +1754,7 @@ def main():
                 write_framework_txt(f, framework, a.limit)
                 f.write("Modules\n")
                 f.write("-------\n")
-                write_modules_txt(f, modules, a.limit, a.modules_root)
+                write_modules_txt(f, modules_with_problems, a.limit, a.modules_root)
         print(out_report)
         per_lang_dup_counts[lang] = sum(len(m["duplicates_with_framework"]) for m in modules)
     if any_unused:
@@ -1382,6 +1822,173 @@ def main():
             print("No duplicated entries removed.")
     else:
         print("No duplicated module localization entries found.")
+    
+    # Check for keys provided by framework that could be deleted from modules
+    total_framework_provided = 0
+    total_missing_covered_by_framework = 0
+    
+    for lang, modules in modules_results:
+        for m in modules:
+            # Look for keys that the module actually has that also exist in framework
+            module_keys = set(m.get("lang_map", {}).keys())
+            framework_keys = set(framework_results[0][1]["keys"]) if framework_results else set()
+            existing_duplicates = list(module_keys & framework_keys)  # Keys module has that framework also has
+            
+            # Also count missing keys that the framework provides
+            missing_covered = m.get("covered_by_framework", [])
+            
+            total_framework_provided += len(existing_duplicates)
+            total_missing_covered_by_framework += len(missing_covered)
+    
+    total_issues = total_framework_provided + total_missing_covered_by_framework
+    
+    if total_issues > 0:
+        print(f"\nFramework localization analysis:")
+        print(f"  • {total_framework_provided} existing keys in modules that duplicate framework")
+        print(f"  • {total_missing_covered_by_framework} missing keys in modules that framework provides")
+        print(f"  • Total: {total_issues} keys that can use framework values")
+        
+        if total_framework_provided > 0:
+            try:
+                ans = (
+                    input("Delete existing keys that duplicate framework from modules? [y/N]: ")
+                    .strip()
+                    .lower()
+                )
+            except EOFError:
+                ans = "n"
+            if ans in ("y", "yes"):
+                for lang, modules in modules_results:
+                    for m in modules:
+                        # Look for keys that the module actually has that also exist in framework
+                        module_keys = set(m.get("lang_map", {}).keys())
+                        framework_keys = set(framework_results[0][1]["keys"]) if framework_results else set()
+                        existing_duplicates = list(module_keys & framework_keys)  # Keys module has that framework also has
+                        
+                        if existing_duplicates:
+                            # Debug mode: show what's happening with the language file
+                            if a.debug:
+                                print(f"\n=== DEBUG: Cleaning up {m['name']} ===")
+                                print(f"Keys to remove: {existing_duplicates}")
+                                debug_language_file_parsing(m["language_file"], existing_duplicates)
+                            
+                            replaced, removed = cleanup_language_file(
+                                m["language_file"], existing_duplicates, m["lang_map"]
+                            )
+                            
+                            # Debug mode: show results
+                            if a.debug:
+                                print(f"Cleanup results: {replaced} table(s) rebuilt, {removed} standalone removed")
+                                if replaced == 0 and removed == 0:
+                                    print("WARNING: No keys were removed! This might indicate a parsing issue.")
+                                    print("Check the debug output above to see what keys were found.")
+                            
+                            print(
+                                f'{lang}: module {m["name"]} existing duplicates removed ({replaced} table(s) rebuilt, {removed} standalone removed, {len(existing_duplicates)} keys targeted)'
+                            )
+            else:
+                print("No existing duplicate keys removed.")
+        
+        if total_missing_covered_by_framework > 0:
+            print(f"\nNote: {total_missing_covered_by_framework} missing keys in modules are provided by the framework.")
+            print("These keys don't need to be added to modules - they can use framework values directly.")
+            print("To use framework values, remove any LANGUAGE.key = 'value' lines for these keys from your code.")
+            print("The framework will automatically provide the values when the keys are requested.")
+            
+            # Show some examples of missing keys that framework provides
+            print(f"\nExamples of missing keys that framework provides:")
+            count = 0
+            for lang, modules in modules_results:
+                if count >= 5:  # Limit to 5 examples
+                    break
+                for m in modules:
+                    if count >= 5:
+                        break
+                    missing_covered = m.get("covered_by_framework", [])
+                    if missing_covered:
+                        for key in missing_covered[:2]:  # Show first 2 keys per module
+                            if count >= 5:
+                                break
+                            framework_val = m.get("framework_values", {}).get(key, "")
+                            print(f"  • {key} = '{framework_val}' (from framework)")
+                            count += 1
+            
+            if total_missing_covered_by_framework > 5:
+                print(f"  ... and {total_missing_covered_by_framework - 5} more keys")
+            
+            print(f"\nFull details are available in the generated reports.")
+            
+            # Ask if user wants to remove these missing keys from code files
+            try:
+                ans = (
+                    input("Remove missing keys that framework provides from code files? [y/N]: ")
+                    .strip()
+                    .lower()
+                )
+            except EOFError:
+                ans = "n"
+            if ans in ("y", "yes"):
+                print("Scanning code files for missing keys that framework provides...")
+                
+                # First, search for existing definitions to see what format they use
+                total_found = 0
+                total_used = 0
+                for lang, modules in modules_results:
+                    for m in modules:
+                        missing_covered = m.get("covered_by_framework", [])
+                        if not missing_covered:
+                            continue
+                        
+                        found_keys, used_keys = search_for_language_keys_in_code(m["module_dir"], missing_covered)
+                        total_found += len(found_keys)
+                        total_used += len(used_keys)
+                
+                print(f"\nSummary:")
+                print(f"  • {total_found} missing keys are DEFINED in code files (can be removed)")
+                print(f"  • {total_used} missing keys are USED in code files (framework will provide values)")
+                print(f"  • {total_missing_covered_by_framework} total missing keys that framework provides")
+                
+                if total_found == 0:
+                    print(f"\nNo existing LANGUAGE key definitions found for the {total_missing_covered_by_framework} missing keys.")
+                    print("This means your code is already correctly using framework values!")
+                    print("The missing keys are just keys that your code requests but doesn't define locally.")
+                    print("Your code will automatically use the framework values when these keys are requested.")
+                else:
+                    print(f"\nFound {total_found} missing keys that are defined in code files.")
+                    print("Now removing these definitions...")
+                    
+                    removed_count = 0
+                    for lang, modules in modules_results:
+                        for m in modules:
+                            missing_covered = m.get("covered_by_framework", [])
+                            if not missing_covered:
+                                continue
+                            
+                            # Scan the module directory for code files that use these keys
+                            module_dir = m["module_dir"]
+                            
+                            # Debug mode: show what's happening
+                            if a.debug:
+                                print(f"\n=== DEBUG: Processing missing keys for {m['name']} ===")
+                                print(f"Missing keys covered by framework: {missing_covered}")
+                                print(f"Module directory: {module_dir}")
+                            
+                            removed_from_module = remove_missing_keys_from_code(module_dir, missing_covered)
+                            if removed_from_module > 0:
+                                print(f"  {lang}: {m['name']} - removed {removed_from_module} missing key references")
+                                removed_count += removed_from_module
+                            elif a.debug:
+                                print(f"  {lang}: {m['name']} - no missing key references found/removed")
+                    
+                    if removed_count > 0:
+                        print(f"\nTotal: Removed {removed_count} missing key references from code files.")
+                        print("These keys will now use framework values automatically.")
+                    else:
+                        print("No missing key references were removed from code files.")
+            else:
+                print("No missing key references removed from code files.")
+    else:
+        print("No keys provided by framework found in modules.")
 
 
 if __name__ == "__main__":
