@@ -90,3 +90,7 @@ python files/privilege_report.py
 ```bash
 python files/remove_duplicate_keys.py
 ```
+- `files/remove_duplicate_language_keys.py`: Remove duplicate language keys from localization files.
+```bash
+python files/remove_duplicate_language_keys.py
+```
