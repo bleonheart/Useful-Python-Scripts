@@ -59,7 +59,7 @@ def generate_module_files(module_roots: list[Path]) -> None:
 
 def main() -> None:
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_LUA_ROOT
-    output = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_OUTPUT_LUA
+    output = Path(sys.argv[2]) if len(sys.argv) > 2 else root / DEFAULT_OUTPUT_LUA.name
     if not root.is_dir():
         print(f"Error: '{root}' is not a valid directory", file=sys.stderr)
         sys.exit(1)
