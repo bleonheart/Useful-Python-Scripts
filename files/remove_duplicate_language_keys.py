@@ -1,8 +1,14 @@
 import os
 import re
-import argparse
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
+
+# Hard-coded paths - modify these as needed
+FRAMEWORK_DIR = r"E:\GMOD\Server\garrysmod\gamemodes\Lilia"  # Path to framework directory (e.g., gamemode)
+MODULES_DIR = r"E:\GMOD\Server\garrysmod\gamemodes\metro\gitmodules"     # Path to modules directory
+LANGUAGE = "english"                        # Language to process
+APPLY_CHANGES = False                       # Set to True to actually remove keys (False = dry run)
+REPORT_FILE = None                          # Set to file path to save report, or None to skip
 
 class LanguageKeyCleaner:
     def __init__(self, framework_dir: str, modules_dir: str = None):
@@ -162,36 +168,35 @@ class LanguageKeyCleaner:
         return report
 
 def main():
-    parser = argparse.ArgumentParser(description="Remove duplicate language keys from Lilia modules")
-    parser.add_argument("--framework", required=True, help="Path to framework directory (e.g., gamemode)")
-    parser.add_argument("--modules", help="Path to modules directory (optional)")
-    parser.add_argument("--language", default="english", help="Language to process (default: english)")
-    parser.add_argument("--apply", action="store_true", help="Actually remove the keys (default: dry run)")
-    parser.add_argument("--report", help="Save report to file")
-    
-    args = parser.parse_args()
+    # Use hard-coded paths and settings
+    print(f"Framework directory: {FRAMEWORK_DIR}")
+    print(f"Modules directory: {MODULES_DIR}")
+    print(f"Language: {LANGUAGE}")
+    print(f"Apply changes: {APPLY_CHANGES}")
+    print(f"Report file: {REPORT_FILE}")
+    print("-" * 50)
     
     # Initialize cleaner
-    cleaner = LanguageKeyCleaner(args.framework, args.modules)
+    cleaner = LanguageKeyCleaner(FRAMEWORK_DIR, MODULES_DIR)
     
     # Load framework keys
-    cleaner.load_framework_keys(args.language)
+    cleaner.load_framework_keys(LANGUAGE)
     
     # Scan for duplicates
-    cleaner.scan_modules_for_duplicates(args.language)
+    cleaner.scan_modules_for_duplicates(LANGUAGE)
     
     # Generate report
     report = cleaner.generate_report()
     print(report)
     
     # Save report if requested
-    if args.report:
-        with open(args.report, 'w', encoding='utf-8') as f:
+    if REPORT_FILE:
+        with open(REPORT_FILE, 'w', encoding='utf-8') as f:
             f.write(report)
-        print(f"Report saved to: {args.report}")
+        print(f"Report saved to: {REPORT_FILE}")
     
     # Remove duplicates
-    cleaner.remove_duplicate_keys(dry_run=not args.apply)
+    cleaner.remove_duplicate_keys(dry_run=not APPLY_CHANGES)
 
 if __name__ == "__main__":
     main()
