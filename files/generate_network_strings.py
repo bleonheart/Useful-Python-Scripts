@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_LUA_ROOT = Path(r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode")
-DEFAULT_OUTPUT_LUA = Path("network_strings.lua")
+DEFAULT_OUTPUT_LUA = Path("networking.lua")
 DEFAULT_MODULE_ROOTS = [
     Path(r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\modules"),
     Path(r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\gitmodules"),
