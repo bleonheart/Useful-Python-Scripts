@@ -1,6 +1,5 @@
 import argparse
 import os
-import sys
 from pathlib import Path
 
 DEFAULT_DIRECTORIES = [
@@ -29,10 +28,11 @@ def _find_long_bracket_closer(text: str, start_index: int, num_equals: int):
     return -1 if pos == -1 else pos + len(closer)
 
 
-def remove_lua_comments(content: str) -> str:
+def remove_lua_comments(content: str):
     i = 0
     n = len(content)
     output_chars = []
+    lines_removed = 0
     while i < n:
         ch = content[i]
         if ch == "-" and i + 1 < n and content[i + 1] == "-":
@@ -42,13 +42,14 @@ def remove_lua_comments(content: str) -> str:
                 if is_open:
                     end_idx = _find_long_bracket_closer(content, end_opener, num_eq)
                     if end_idx == -1:
-                        output_chars.append(content[i:])
+                        lines_removed += content[i:].count("\n")
                         break
-                    output_chars.append(content[i:end_idx])
+                    lines_removed += content[i:end_idx].count("\n")
                     i = end_idx
                     continue
             while i < n and content[i] != "\n":
                 i += 1
+            lines_removed += 1
             if i < n and content[i] == "\n":
                 output_chars.append("\n")
                 i += 1
@@ -81,17 +82,14 @@ def remove_lua_comments(content: str) -> str:
                 continue
         output_chars.append(ch)
         i += 1
-    return "".join(output_chars)
+    return "".join(output_chars), lines_removed
 
 
 def process_file(file_path, dry_run=False):
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             original_content = f.read()
-        cleaned_content = remove_lua_comments(original_content)
-        original_lines = original_content.split("\n")
-        cleaned_lines = cleaned_content.split("\n")
-        lines_removed = max(0, len(original_lines) - len(cleaned_lines))
+        cleaned_content, lines_removed = remove_lua_comments(original_content)
         if original_content != cleaned_content:
             if not dry_run:
                 with open(file_path, "w", encoding="utf-8") as f:
