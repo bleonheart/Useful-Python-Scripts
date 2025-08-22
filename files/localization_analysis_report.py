@@ -494,6 +494,18 @@ def iter_localization_calls(src):
                 in_line_comment = True
                 i += 2
                 continue
+            # Check for @stringID pattern
+            if ch == "@":
+                j = i + 1
+                while j < n and (src[j] == "_" or src[j].isalnum()):
+                    j += 1
+                if j > i + 1:  # We found a stringID after @
+                    string_id = src[i+1:j]
+                    # Skip @liliaplayer pattern specifically
+                    if string_id != "liliaplayer":
+                        yield (string_id, 0, "pattern:@stringID", i)
+                    i = j
+                    continue
             if ch == "_" or ch.isalpha():
                 j = i + 1
                 while j < n and (src[j] == "_" or src[j].isalnum()):
@@ -716,6 +728,11 @@ def scan_localization_calls(scan_dir, language_file, keys, placeholders):
                 src = f.read()
             starts = build_line_starts(src)
             for key, num_extra, kind, pos in iter_localization_calls(src):
+                # Skip @stringID patterns that are actually in language files
+                if kind == "pattern:@stringID" and os.path.basename(path).lower().endswith(".lua"):
+                    # Check if this file is likely a language file by looking for LANGUAGE patterns
+                    if "LANGUAGE" in src and ("LANGUAGE." in src or "LANGUAGE[" in src or "LANGUAGE = {" in src):
+                        continue
                 all_used_keys.add(key)
                 line, col = pos_to_line_col(starts, pos)
                 if key not in keyset:
