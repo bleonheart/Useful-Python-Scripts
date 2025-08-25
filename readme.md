@@ -60,6 +60,10 @@ python files/addon_merge_clean_split.py
 ```
 
 ### Lua utilities
+- `files/glualint_runner.py`: Run glualint on multiple directories and generate reports (full log + unused variable filter).
+```bash
+python files/unused_variable_finder.py
+```
 - `files/lua_bundle.py`: Bundle all `.lua` files under a directory into one file.
 ```bash
 python files/lua_bundle.py <source_dir> <output_file>
