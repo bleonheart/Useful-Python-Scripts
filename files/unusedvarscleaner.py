@@ -15,11 +15,12 @@ def write_text(p, s):
 
 def clean_path(s):
     s = s.replace("\ufeff", "").strip().strip('"\'')
-
-    if "," in s:
-        s = s.split(",", 1)[0].strip().strip('"\'')
-
-    s = s.rstrip(" ,;:\t")
+    cut = len(s)
+    for sep in ("|", ","):
+        idx = s.find(sep)
+        if idx != -1:
+            cut = min(cut, idx)
+    s = s[:cut].strip().strip('"\'').rstrip(" ,;:\t")
     return os.path.normpath(s)
 
 def parse_list_file(p):
@@ -28,7 +29,7 @@ def parse_list_file(p):
         s = l.strip()
         if not s:
             continue
-        if "," in s:
+        if "|" in s or "," in s:
             fp = clean_path(s)
             if fp:
                 out.append(fp)
@@ -113,7 +114,7 @@ def tokenize(s):
             tokens.append((t, val, i, j))
             i = j
             continue
-        if c in "(),.:;[]":
+        if c in "(),.:;[]{}=":
             tokens.append(("punct", c, i, i+1))
             i += 1
             continue
@@ -124,6 +125,7 @@ def transform_source(src):
     tokens = tokenize(src)
     edits = []
     i = 0
+    param_indices = set()
     while i < len(tokens):
         t = tokens[i]
         if t[0] == "keyword" and t[1] == "function":
@@ -155,9 +157,10 @@ def transform_source(src):
             while p < paren_close:
                 tt = tokens[p]
                 if tt[0] == "ident":
-                    params.append({"name":tt[1],"start":tt[2],"end":tt[3]})
+                    params.append({"name":tt[1],"start":tt[2],"end":tt[3],"tok":p})
+                    param_indices.add(p)
                 elif tt[0] == "vararg":
-                    params.append({"name":"...","start":tt[2],"end":tt[3]})
+                    params.append({"name":"...","start":tt[2],"end":tt[3],"tok":p})
                 elif tt[0] == "punct" and tt[1] == ",":
                     commas.append((tt[2],tt[3]))
                 p += 1
@@ -217,6 +220,65 @@ def transform_source(src):
             i = m + 1
         else:
             i += 1
+    local_decl_indices = set()
+    local_stmts = []
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t[0] == "keyword" and t[1] == "local":
+            j = i + 1
+            if j < len(tokens) and tokens[j][0] == "keyword" and tokens[j][1] == "function":
+                i += 1
+                continue
+            vars_list = []
+            p = j
+            expect_ident = True
+            while p < len(tokens):
+                tt = tokens[p]
+                if expect_ident and tt[0] == "ident":
+                    vars_list.append({"name":tt[1],"start":tt[2],"end":tt[3],"tok":p})
+                    local_decl_indices.add(p)
+                    expect_ident = False
+                    p += 1
+                    continue
+                if not expect_ident and tt[0] == "punct" and tt[1] == ",":
+                    expect_ident = True
+                    p += 1
+                    continue
+                break
+            eq = p < len(tokens) and tokens[p][0] == "punct" and tokens[p][1] == "="
+            start_pos = t[2]
+            ls = src.rfind("\n", 0, start_pos)
+            prefix = src[(ls + 1 if ls != -1 else 0):start_pos]
+            removal_start = (ls + 1 if ls != -1 and prefix.strip() == "" else start_pos)
+            le = src.find("\n", start_pos)
+            removal_end = (le + 1) if le != -1 else len(src)
+            if vars_list:
+                local_stmts.append({"vars":vars_list,"eq":eq,"removal_start":removal_start,"removal_end":removal_end})
+                i = p
+                continue
+        i += 1
+    used_names = set()
+    for idx, tok in enumerate(tokens):
+        if tok[0] != "ident":
+            continue
+        if idx in local_decl_indices or idx in param_indices:
+            continue
+        if idx > 0 and tokens[idx-1][0] == "keyword" and tokens[idx-1][1] == "function":
+            continue
+        used_names.add(tok[1])
+    for stmt in local_stmts:
+        names = [v["name"] for v in stmt["vars"] if v["name"] != "_"]
+        all_unused = all(n not in used_names for n in names)
+        if names and all_unused:
+            edits.append((stmt["removal_start"], stmt["removal_end"], ""))
+        else:
+            for v in stmt["vars"]:
+                nm = v["name"]
+                if nm == "_":
+                    continue
+                if nm not in used_names:
+                    edits.append((v["start"], v["end"], "_"))
     if not edits:
         return src, False
     edits.sort(key=lambda x: x[0], reverse=True)

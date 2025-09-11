@@ -18,7 +18,7 @@ PATTERNS = [
     re.compile(r"lia\.net\.writeBigTable\([^,]*,\s*['\"]([^'\"]+)['\"]"),
 ]
 
-NETWORK_TABLE_RE = re.compile(r"MODULE\.NetworkStrings\s*=\s*\{.*?\}", re.DOTALL)
+NETWORK_TABLE_RE = re.compile(r"^\s*MODULE\.NetworkStrings\s*=\s*\{.*?\}\s*\n?", re.DOTALL | re.MULTILINE)
 
 
 def find_net_messages(root: Path) -> set[str]:
@@ -46,7 +46,10 @@ def write_lua_file(messages: list[str], output_path: Path) -> bool:
     lua = "local networkStrings = {\n" + body + "}\n"
     lua += "for _, netString in ipairs(networkStrings) do\n    util.AddNetworkString(netString)\nend\n"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(lua, encoding="utf-8")
+    try:
+        output_path.write_text(lua, encoding="utf-8")
+    except OSError:
+        return False
     return True
 
 
@@ -55,24 +58,30 @@ def build_module_block(messages: list[str]) -> str:
         return ""
     esc = [escape_lua_string(m) for m in messages]
     body = "".join(f'        "{s}",\n' for s in esc[:-1]) + f'        "{esc[-1]}"\n'
-    return "MODULE.NetworkStrings ={\n" + body + "}\n\n"
+    return "MODULE.NetworkStrings = {\n" + body + "}\n\n"
 
 
 def update_module_lua(module_dir: Path, messages: list[str]) -> bool:
     module_path = module_dir / "module.lua"
-    if not module_path.is_file() or not messages:
+    if not module_path.is_file():
         return False
     try:
         text = module_path.read_text(encoding="utf-8", errors="ignore")
     except (OSError, UnicodeError):
         return False
+    text_no_block = NETWORK_TABLE_RE.sub("", text)
+    if not messages:
+        if text_no_block != text:
+            try:
+                module_path.write_text(text_no_block, encoding="utf-8")
+            except OSError:
+                return False
+            return True
+        return False
     block = build_module_block(messages)
     if not block:
         return False
-    if NETWORK_TABLE_RE.search(text):
-        new_text = NETWORK_TABLE_RE.sub(block.strip(), text)
-    else:
-        new_text = block + text
+    new_text = block + text_no_block.lstrip()
     try:
         module_path.write_text(new_text, encoding="utf-8")
     except OSError:
@@ -80,33 +89,77 @@ def update_module_lua(module_dir: Path, messages: list[str]) -> bool:
     return True
 
 
+def iter_module_dirs(root: Path):
+    seen = set()
+    for mod_file in root.rglob("module.lua"):
+        parent = mod_file.parent.resolve()
+        if parent not in seen:
+            seen.add(parent)
+            yield parent
+
+
 def generate_module_files(module_roots: list[Path]) -> None:
     for root in module_roots:
         if not root.is_dir():
+            print(f"Skipped '{root}': not a directory")
             continue
-        for module_dir in [p for p in root.iterdir() if p.is_dir()]:
+        for module_dir in iter_module_dirs(root):
             messages = sorted(find_net_messages(module_dir))
             updated = update_module_lua(module_dir, messages)
-            if updated:
-                print(f"Inserted MODULE.NetworkStrings at top of '{module_dir / 'module.lua'}'")
+            if updated and messages:
+                print(f"Replaced MODULE.NetworkStrings in '{module_dir / 'module.lua'}'")
+            elif updated:
+                print(f"Removed MODULE.NetworkStrings (no messages) in '{module_dir / 'module.lua'}'")
             elif write_lua_file(messages, module_dir / DEFAULT_OUTPUT_LUA.name):
                 print(f"Wrote {len(messages)} network strings to '{module_dir / DEFAULT_OUTPUT_LUA.name}'")
             else:
                 print(f"Skipped '{module_dir}': no network strings found")
 
 
+def prompt_yes_no(msg: str, default: bool | None = None) -> bool:
+    suffix = " [y/n]: " if default is None else (" [Y/n]: " if default else " [y/N]: ")
+    while True:
+        try:
+            resp = input(msg + suffix).strip().lower()
+        except EOFError:
+            return bool(default)
+        if not resp and default is not None:
+            return default
+        if resp in ("y", "yes"):
+            return True
+        if resp in ("n", "no"):
+            return False
+        print("Please answer y or n.")
+
+
 def main() -> None:
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_LUA_ROOT
-    output = Path(sys.argv[2]) if len(sys.argv) > 2 else root / DEFAULT_OUTPUT_LUA.name
-    if not root.is_dir():
-        print(f"Error: '{root}' is not a valid directory", file=sys.stderr)
-        sys.exit(1)
-    messages = sorted(find_net_messages(root))
-    if write_lua_file(messages, output):
-        print(f"Wrote {len(messages)} network strings to '{output}'")
+    args = sys.argv[1:]
+    if len(args) >= 1:
+        root = Path(args[0])
     else:
-        print("No network strings found; not creating a Lua file")
-    generate_module_files(DEFAULT_MODULE_ROOTS)
+        root = DEFAULT_LUA_ROOT
+    if len(args) >= 2:
+        output = Path(args[1])
+    else:
+        output = root / DEFAULT_OUTPUT_LUA.name
+    proceed_root = prompt_yes_no(f"Do you want to run it in '{root}'?", True)
+    if proceed_root:
+        if not root.is_dir():
+            print(f"Error: '{root}' is not a valid directory", file=sys.stderr)
+        else:
+            messages = sorted(find_net_messages(root))
+            if write_lua_file(messages, output):
+                print(f"Wrote {len(messages)} network strings to '{output}'")
+            else:
+                print("No network strings found; not creating a Lua file")
+    module_roots = []
+    for p in DEFAULT_MODULE_ROOTS:
+        if prompt_yes_no(f"Do you want to run it in '{p}'?", True):
+            module_roots.append(p)
+    if module_roots:
+        generate_module_files(module_roots)
+    else:
+        print("No module roots selected")
 
 
 if __name__ == "__main__":

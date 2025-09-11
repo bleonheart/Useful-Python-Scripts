@@ -449,6 +449,44 @@ def count_placeholders(fmt):
     )
 
 
+def find_at_patterns(src):
+    """
+    Find all @xxxxx patterns in source code.
+    Returns a list of tuples: (pattern, position, context)
+    """
+    patterns = []
+    n = len(src)
+    i = 0
+    
+    while i < n:
+        if src[i] == "@":
+            j = i + 1
+            # Allow alphanumeric, underscore, and common identifier characters
+            while j < n and (src[j] == "_" or src[j].isalnum() or src[j] in ".-"):
+                j += 1
+            
+            if j > i + 1:  # We found a pattern after @
+                pattern = src[i:j]
+                string_id = pattern[1:]  # Remove the @
+                
+                # Skip specific patterns that are not localization keys
+                skip_patterns = ["liliaplayer", "lilia", "lia"]
+                if string_id not in skip_patterns and len(string_id) > 1:
+                    # Get some context around the pattern
+                    start_context = max(0, i - 20)
+                    end_context = min(n, j + 20)
+                    context = src[start_context:end_context].replace('\n', ' ').replace('\r', ' ')
+                    
+                    patterns.append((pattern, i, context))
+                i = j
+            else:
+                i += 1
+        else:
+            i += 1
+    
+    return patterns
+
+
 def iter_localization_calls(src):
     n = len(src)
     i = 0
@@ -497,12 +535,12 @@ def iter_localization_calls(src):
             # Check for @stringID pattern
             if ch == "@":
                 j = i + 1
-                while j < n and (src[j] == "_" or src[j].isalnum()):
+                while j < n and (src[j] == "_" or src[j].isalnum() or src[j] in ".-"):
                     j += 1
                 if j > i + 1:  # We found a stringID after @
                     string_id = src[i+1:j]
-                    # Skip @liliaplayer pattern specifically
-                    if string_id != "liliaplayer":
+                    skip_patterns = ["liliaplayer", "lilia", "lia"]
+                    if string_id not in skip_patterns and len(string_id) > 1:
                         yield (string_id, 0, "pattern:@stringID", i)
                     i = j
                     continue
@@ -712,6 +750,29 @@ def scan_usages(scan_dir, language_file, keys):
     return used
 
 
+def scan_at_patterns(scan_dir, language_file):
+    """
+    Scan for @xxxxx patterns in all Lua files.
+    Returns a list of tuples: (file_path, line, col, pattern, context)
+    """
+    at_patterns = []
+    for root, _, files in os.walk(scan_dir):
+        for name in files:
+            if not name.lower().endswith(".lua"):
+                continue
+            path = os.path.join(root, name)
+            if os.path.abspath(path) == os.path.abspath(language_file):
+                continue
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                src = f.read()
+            starts = build_line_starts(src)
+            patterns = find_at_patterns(src)
+            for pattern, pos, context in patterns:
+                line, col = pos_to_line_col(starts, pos)
+                at_patterns.append((path, line, col, pattern, context))
+    return at_patterns
+
+
 def scan_localization_calls(scan_dir, language_file, keys, placeholders):
     undefined = []
     mismatches = []
@@ -774,6 +835,7 @@ def analyze_data(language_file, scan_dir):
     undefined, mismatches, all_used_keys = scan_localization_calls(
         scan_dir, language_file, keys, placeholders
     )
+    at_patterns = scan_at_patterns(scan_dir, language_file)
     undefined_rows = [
         (relpath(pth, scan_dir), ln, col, kind, key)
         for pth, ln, col, key, kind in undefined
@@ -784,10 +846,16 @@ def analyze_data(language_file, scan_dir):
         for pth, ln, col, key, exp, got, kind in mismatches
     ]
     mismatch_rows.sort(key=lambda r: (r[0].lower(), r[1], r[2], r[3], r[4].lower()))
+    at_pattern_rows = [
+        (relpath(pth, scan_dir), ln, col, pattern, context)
+        for pth, ln, col, pattern, context in at_patterns
+    ]
+    at_pattern_rows.sort(key=lambda r: (r[0].lower(), r[1], r[2], r[3].lower()))
     defined_keys_set = set(keys)
     undefined_key_names = sorted(all_used_keys - defined_keys_set)
     files_with_undef = {r[0] for r in undefined_rows}
     files_with_mismatch = {r[0] for r in mismatch_rows}
+    files_with_at_patterns = {r[0] for r in at_pattern_rows}
     return {
         "language_file": language_file,
         "scan_dir": scan_dir,
@@ -797,9 +865,11 @@ def analyze_data(language_file, scan_dir):
         "unused": unused,
         "undefined_rows": undefined_rows,
         "mismatch_rows": mismatch_rows,
+        "at_pattern_rows": at_pattern_rows,
         "undefined_key_names": undefined_key_names,
         "files_with_undef": files_with_undef,
         "files_with_mismatch": files_with_mismatch,
+        "files_with_at_patterns": files_with_at_patterns,
     }
 
 
@@ -824,9 +894,11 @@ def write_framework_md(f, data, limit):
             ["Unused keys", len(data["unused"])],
             ["Undefined localization calls", len(data["undefined_rows"])],
             ["Argument mismatches", len(data["mismatch_rows"])],
+            ["@xxxxx patterns found", len(data["at_pattern_rows"])],
             ["Keys used but not defined", len(data["undefined_key_names"])],
             ["Files with undefined calls", len(data["files_with_undef"])],
             ["Files with mismatches", len(data["files_with_mismatch"])],
+            ["Files with @xxxxx patterns", len(data["files_with_at_patterns"])],
         ],
     )
     f.write("### Undefined Localization Calls\n\n")
@@ -871,6 +943,20 @@ def write_framework_md(f, data, limit):
         )
         if len(data["undefined_key_names"]) > limit:
             f.write(f'Showing first {limit} of {len(data["undefined_key_names"])}.\n\n')
+    f.write("### @xxxxx Patterns Found\n\n")
+    if not data["at_pattern_rows"]:
+        f.write("_None_\n\n")
+    else:
+        rows = []
+        for r in data["at_pattern_rows"][:limit]:
+            file_disp = md_code(r[0])
+            lc = f"{r[1]}:{r[2]}"
+            pattern = md_code(r[3])
+            context = md_code(r[4][:50] + "..." if len(r[4]) > 50 else r[4])
+            rows.append([file_disp, lc, pattern, context])
+        write_markdown_table(f, ["File", "Line:Col", "Pattern", "Context"], rows)
+        if len(data["at_pattern_rows"]) > limit:
+            f.write(f'Showing first {limit} of {len(data["at_pattern_rows"])}.\n\n')
 
 
 def write_framework_txt(f, data, limit):
@@ -883,13 +969,13 @@ def write_framework_txt(f, data, limit):
     f.write(f'Unused keys:                         {len(data["unused"])}\n')
     f.write(f'Undefined localization calls:        {len(data["undefined_rows"])}\n')
     f.write(f'Argument mismatches:                 {len(data["mismatch_rows"])}\n')
+    f.write(f'@xxxxx patterns found:               {len(data["at_pattern_rows"])}\n')
     f.write(
         f'Keys used but not defined:           {len(data["undefined_key_names"])}\n'
     )
     f.write(f'Files with undefined calls:          {len(data["files_with_undef"])}\n')
-    f.write(
-        f'Files with mismatches:               {len(data["files_with_mismatch"])}\n\n'
-    )
+    f.write(f'Files with mismatches:               {len(data["files_with_mismatch"])}\n')
+    f.write(f'Files with @xxxxx patterns:          {len(data["files_with_at_patterns"])}\n\n')
     f.write("Undefined Localization Calls\n")
     f.write("-----------------------------\n")
     if data["undefined_rows"]:
@@ -933,6 +1019,18 @@ def write_framework_txt(f, data, limit):
             f.write(f"{k}\n")
         if len(data["undefined_key_names"]) > limit:
             f.write(f'... ({len(data["undefined_key_names"]) - limit} more)\n')
+        f.write("\n")
+    else:
+        f.write("None\n\n")
+    f.write("@xxxxx Patterns Found\n")
+    f.write("----------------------\n")
+    if data["at_pattern_rows"]:
+        write_header(f, ["file", "line", "col", "pattern", "context"])
+        for r in data["at_pattern_rows"][:limit]:
+            context = r[4][:50] + "..." if len(r[4]) > 50 else r[4]
+            f.write(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]}\t{context}\n")
+        if len(data["at_pattern_rows"]) > limit:
+            f.write(f'... ({len(data["at_pattern_rows"]) - limit} more)\n')
         f.write("\n")
     else:
         f.write("None\n\n")
@@ -1492,6 +1590,7 @@ def main():
     p.add_argument("--delete-unused", action="store_true")
     p.add_argument("--remove-duplicates", action="store_true")
     p.add_argument("--remove-missing-from-code", action="store_true")
+    p.add_argument("--show-at-patterns", action="store_true", help="Show detailed @xxxxx pattern detection")
     a = p.parse_args()
     if not os.path.isdir(a.framework_gamemode_dir):
         print("Framework dir not found", file=sys.stderr)
@@ -1593,6 +1692,16 @@ def main():
                 write_modules_txt(f, modules_with_problems, a.limit, a.modules_root)
         print(out_report)
         per_lang_dup_counts[lang] = sum(len(m["duplicates_with_framework"]) for m in modules)
+        
+        # Show @xxxxx pattern detection results if requested
+        if a.show_at_patterns and framework["at_pattern_rows"]:
+            print(f"\n@xxxxx Patterns found in {lang}:")
+            for r in framework["at_pattern_rows"][:10]:  # Show first 10
+                context = r[4][:60] + "..." if len(r[4]) > 60 else r[4]
+                print(f"  {r[0]}:{r[1]}:{r[2]} - {r[3]} ({context})")
+            if len(framework["at_pattern_rows"]) > 10:
+                print(f"  ... and {len(framework['at_pattern_rows']) - 10} more patterns")
+            print()
     if any_unused:
         proceed_unused = a.yes or a.delete_unused
         if not proceed_unused:
