@@ -1,74 +1,101 @@
-import sys
+#!/usr/bin/env python3
+"""
+Hook analysis module for finding missing hook documentation.
+"""
+
+import os
 import re
 from pathlib import Path
-from datetime import datetime
+from typing import List, Set
 
-DEFAULT_GAMEMODE_ROOT = Path(r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\gamemode")
-DEFAULT_DOC_MD = Path(r"E:\\GMOD\\Server\\garrysmod\\gamemodes\\Lilia\\documentation\\docs\\hooks\\gamemode_hooks.md")
 
-root = DEFAULT_GAMEMODE_ROOT
-doc_path = DEFAULT_DOC_MD
+def scan_hooks(base_path: str) -> List[str]:
+    """Scan Lua files for hook.Add and hook.Run calls"""
+    hooks_found = set()
+    base_path = Path(base_path)
 
-module_pat = re.compile(r"^\s*function\s+MODULE\s*[:.]\s*([A-Za-z_]\w*)\s*\(", re.MULTILINE)
-gm_pat = re.compile(r"^\s*function\s+GM\s*[:.]\s*([A-Za-z_]\w*)\s*\(", re.MULTILINE)
-schema_pat = re.compile(r"^\s*function\s+SCHEMA\s*[:.]\s*([A-Za-z_]\w*)\s*\(", re.MULTILINE)
-hook_add_pat = re.compile(r'hook\s*\.\s*Add\s*\(\s*([\'"])([^\'"]+)\1')
-hook_run_pat = re.compile(r'hook\s*\.\s*Run\s*\(\s*([\'"])([^\'"]+)\1')
-doc_hook_pat = re.compile(r"^\s*###\s+`?([A-Za-z_][\w:]*)`?\s*$", re.MULTILINE)
+    # Scan all .lua files
+    for root, dirs, files in os.walk(base_path):
+        # Skip certain directories
+        dirs[:] = [d for d in dirs if d not in ['node_modules', '.git']]
 
-def scan_hooks(root_path):
-    names = set()
-    for p in root_path.rglob("*.lua"):
-        try:
-            s = p.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            continue
-        names.update(module_pat.findall(s))
-        names.update(gm_pat.findall(s))
-        names.update(schema_pat.findall(s))
-        names.update(t[1] for t in hook_add_pat.findall(s))
-        names.update(t[1] for t in hook_run_pat.findall(s))
-    return set(sorted(names, key=str.lower))
+        for file in files:
+            if file.endswith('.lua'):
+                file_path = os.path.join(root, file)
+                file_hooks = _extract_hooks_from_file(file_path)
+                hooks_found.update(file_hooks)
 
-def read_documented_hooks(path):
+    return sorted(list(hooks_found))
+
+
+def _extract_hooks_from_file(file_path: str) -> Set[str]:
+    """Extract hooks from a single Lua file"""
+    hooks = set()
+
     try:
-        doc = path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return set()
-    return set(doc_hook_pat.findall(doc))
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Warning: Could not read {file_path}: {e}")
+        return hooks
 
-def unique_output_path(base_dir, base_name, ext):
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    p = base_dir / f"{base_name}_{ts}{ext}"
-    if not p.exists():
-        return p
-    i = 1
-    while True:
-        q = base_dir / f"{base_name}_{ts}_{i}{ext}"
-        if not q.exists():
-            return q
-        i += 1
+    # Pattern for hook.Add calls
+    # Matches: hook.Add("hook_name", ...)
+    hook_add_pattern = r'hook\.Add\s*\(\s*([\'"`])([^\'"`]+)\1'
 
-def write_new_file(lines, out_dir):
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = unique_output_path(out_dir, "hooks_missing_from_docs", ".txt")
+    # Pattern for hook.Run calls
+    # Matches: hook.Run("hook_name", ...)
+    hook_run_pattern = r'hook\.Run\s*\(\s*([\'"`])([^\'"`]+)\1'
+
+    # Find hook.Add calls
+    for match in re.finditer(hook_add_pattern, content):
+        hook_name = match.group(2)
+        if hook_name:
+            hooks.add(hook_name.strip())
+
+    # Find hook.Run calls
+    for match in re.finditer(hook_run_pattern, content):
+        hook_name = match.group(2)
+        if hook_name:
+            hooks.add(hook_name.strip())
+
+    return hooks
+
+
+def read_documented_hooks(hooks_doc_path: str) -> List[str]:
+    """Read documented hooks from the hooks documentation file"""
+    documented_hooks = set()
+    hooks_doc_path = Path(hooks_doc_path)
+
+    if not hooks_doc_path.exists():
+        print(f"Warning: Hooks documentation file not found: {hooks_doc_path}")
+        return []
+
     try:
-        with out_path.open("x", encoding="utf-8") as f:
-            f.write("\n".join(sorted(lines, key=str.lower)))
-            if lines:
-                f.write("\n")
-        return True
-    except Exception:
-        return False
+        with open(hooks_doc_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Warning: Could not read hooks documentation: {e}")
+        return []
 
-def main():
-    hooks = scan_hooks(root)
-    documented = read_documented_hooks(doc_path)
-    missing = [h for h in hooks if h not in documented]
-    out_dir = doc_path.parent
-    ok = write_new_file(missing, out_dir)
-    if not ok:
-        sys.exit(1)
+    lines = content.split('\n')
 
-if __name__ == "__main__":
-    main()
+    for line in lines:
+        # Look for hook names in backticks or as headers
+        # Matches: `hook_name` or ## hook_name
+        hook_match = re.search(r'`([^`]+)`', line)
+        if hook_match:
+            hook_name = hook_match.group(1).strip()
+            if hook_name:
+                documented_hooks.add(hook_name)
+
+        # Also check for markdown headers
+        header_match = re.search(r'^#+\s+(.+)', line)
+        if header_match:
+            header_text = header_match.group(1).strip()
+            # Extract hook names from headers - more permissive matching
+            # Accept any header that could be a hook name (alphanumeric, underscores, etc.)
+            if re.search(r'^[A-Za-z_][A-Za-z0-9_]*$', header_text):
+                documented_hooks.add(header_text)
+
+    return sorted(list(documented_hooks))

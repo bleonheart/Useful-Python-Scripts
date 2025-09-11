@@ -18,22 +18,18 @@ DEFAULT_MODULES_PATHS = [
     Path(r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\modules"),
     Path(r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\devmodules"),
 ]
-DEFAULT_OUTPUT_DIR = Path(r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\documentation\reports")
+DEFAULT_OUTPUT_DIR = Path(r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\documentation")
 
 # Import from existing files
+import sys
+import os
+
+# Add current directory to path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 try:
-    from .compare_functions import FunctionComparator, LuaFunctionExtractor, DocumentationParser
-    from .missinghooks import scan_hooks, read_documented_hooks
-    from .localization_analysis_report import (
-        analyze_data, write_framework_md, write_framework_txt,
-        write_modules_md, write_modules_txt, DEFAULT_FRAMEWORK_GAMEMODE_DIR,
-        DEFAULT_LANGUAGE_FILE, DEFAULT_MODULES_PATHS
-    )
-except ImportError:
-    # Fallback for direct execution
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(__file__))
     from compare_functions import FunctionComparator, LuaFunctionExtractor, DocumentationParser
     from missinghooks import scan_hooks, read_documented_hooks
     from localization_analysis_report import (
@@ -41,6 +37,10 @@ except ImportError:
         write_modules_md, write_modules_txt, DEFAULT_FRAMEWORK_GAMEMODE_DIR,
         DEFAULT_LANGUAGE_FILE, DEFAULT_MODULES_PATHS
     )
+except ImportError as e:
+    print(f"Error importing required modules: {e}")
+    print("Make sure compare_functions.py, missinghooks.py, and localization_analysis_report.py exist in the same directory")
+    sys.exit(1)
 
 @dataclass
 class CombinedReportData:
@@ -215,14 +215,59 @@ class FunctionComparisonReportGenerator:
         for file_name, file_data in function_map.items():
             per_file_functions[file_name] = list(file_data.get('functions', {}).keys())
 
-        # Get documented hooks from main gamemode_hooks.md to filter out already documented hooks
+        # Get documented hooks from main Lilia documentation to filter out already documented hooks
         try:
             documented_hooks = set()
+            # Check gamemode_hooks.md
             if self.hooks_doc_path.exists():
-                from .missinghooks import read_documented_hooks
-                documented_hooks = set(read_documented_hooks(self.hooks_doc_path))
+                documented_hooks.update(read_documented_hooks(str(self.hooks_doc_path)))
+
+            # Also check other hook documentation files
+            docs_path = Path(self.docs_path) / "docs"
+            if (docs_path / "hooks").exists():
+                for md_file in (docs_path / "hooks").glob("*.md"):
+                    try:
+                        documented_hooks.update(read_documented_hooks(str(md_file)))
+                    except Exception:
+                        continue
         except Exception:
             documented_hooks = set()
+
+        # Get all documented functions from main Lilia documentation
+        try:
+            documented_functions = set()
+            docs_path = Path(self.docs_path) / "docs"
+
+            # Check libraries documentation
+            if (docs_path / "libraries").exists():
+                for md_file in (docs_path / "libraries").glob("*.md"):
+                    if md_file.name.startswith("lia."):
+                        try:
+                            with open(md_file, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            # Extract function names from headers
+                            import re
+                            for match in re.finditer(r'^###+\s+([A-Za-z_][\w\.:]*)\s*$', content, re.MULTILINE):
+                                func_name = match.group(1).strip()
+                                documented_functions.add(func_name)
+                        except Exception:
+                            continue
+
+            # Check meta documentation
+            if (docs_path / "meta").exists():
+                for md_file in (docs_path / "meta").glob("*.md"):
+                    try:
+                        with open(md_file, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        # Extract method names from meta docs
+                        for match in re.finditer(r'`([A-Za-z_][\w\.:]*)\([^)]*\)`', content):
+                            method_name = match.group(1).strip()
+                            documented_functions.add(method_name)
+                    except Exception:
+                        continue
+
+        except Exception:
+            documented_functions = set()
 
         # Iterate modules
         lang_name = Path(self.language_file).stem
@@ -263,7 +308,9 @@ class FunctionComparisonReportGenerator:
                         for m in re.finditer(r'\b(function\s+([A-Za-z_][\w\.]*?)\s*\(|([A-Za-z_][\w\.]*?)\s*=\s*function\s*\()', content):
                             name = m.group(2) or m.group(3)
                             # Only include functions that start with "lia." and have at least one more dot
-                            if name and name.startswith('lia.') and name.count('.') >= 2:
+                            # AND are not already documented in main Lilia docs
+                            if (name and name.startswith('lia.') and name.count('.') >= 2
+                                and name not in documented_functions):
                                 dotted_functions.append(name)
 
                         # Hooks via hook.Add / hook.Run literals in module
@@ -281,78 +328,84 @@ class FunctionComparisonReportGenerator:
                 if dotted_functions or hooks_found:
                     docs_dir.mkdir(parents=True, exist_ok=True)
 
-                    # Helper function to get unique filename with suffix
-                    def get_unique_filename(directory, base_name):
-                        """Get a unique filename, adding suffix if file exists."""
-                        base_path = directory / base_name
-                        if not base_path.exists():
-                            return base_path
 
-                        # File exists, add suffix
-                        counter = 2
-                        while True:
-                            name_parts = base_name.rsplit('.', 1)
-                            if len(name_parts) == 2:
-                                new_name = f"{name_parts[0]}_{counter}.{name_parts[1]}"
-                            else:
-                                new_name = f"{base_name}_{counter}"
-
-                            new_path = directory / new_name
-                            if not new_path.exists():
-                                return new_path
-                            counter += 1
-
-                    # Write libraries.md if dotted functions found
+                    # Write libraries.md if dotted functions found (always overwrite)
                     if dotted_functions:
-                        lib_md = get_unique_filename(docs_dir, 'libraries.md')
-                        with open(lib_md, 'w', encoding='utf-8') as f:
+                        lib_md_path = docs_dir / 'libraries.md'
+                        with open(lib_md_path, 'w', encoding='utf-8') as f:
                             f.write('# Module Libraries\n\n')
                             f.write('Detected dotted functions in this module.\n\n')
                             for name in sorted(set(dotted_functions)):
                                 f.write(f'- `{name}`\n')
 
-                    # Write hooks.md if undocumented hooks found
-                    if hooks_found:
-                        hooks_md = get_unique_filename(docs_dir, 'hooks.md')
-                        with open(hooks_md, 'w', encoding='utf-8') as f:
-                            f.write('# Module Hooks\n\n')
+                    # Handle hooks.md - always overwrite the main file
+                    hooks_md_path = docs_dir / 'hooks.md'
+
+                    # Read existing hooks from hooks.md to compare
+                    existing_hooks = set()
+                    if hooks_md_path.exists():
+                        try:
+                            with open(hooks_md_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                # Extract existing hook names from the file
+                                import re
+                                for match in re.finditer(r'`([^`]+)`', content):
+                                    existing_hooks.add(match.group(1).strip())
+                        except Exception:
+                            existing_hooks = set()
+
+                    # Determine new hooks (hooks that weren't in the previous file)
+                    new_hooks = hooks_found - existing_hooks
+
+                    # Always update hooks.md with current status
+                    with open(hooks_md_path, 'w', encoding='utf-8') as f:
+                        f.write('# Module Hooks\n\n')
+                        if hooks_found:
                             f.write('Detected hooks referenced/added in this module that are NOT documented in gamemode_hooks.md.\n\n')
                             for name in sorted(hooks_found, key=str.lower):
+                                f.write(f'- `{name}`\n')
+                        else:
+                            f.write('All hooks used in this module are already documented in gamemode_hooks.md.\n\n')
+
+                    # Create hooks_new.md only if there are truly new hooks
+                    if new_hooks:
+                        hooks_new_path = docs_dir / 'hooks_new.md'
+                        with open(hooks_new_path, 'w', encoding='utf-8') as f:
+                            f.write('# New Module Hooks\n\n')
+                            f.write('New hooks detected in this module that were not in the previous hooks.md:\n\n')
+                            for name in sorted(new_hooks, key=str.lower):
                                 f.write(f'- `{name}`\n')
 
     def _generate_executive_summary(self, data: CombinedReportData) -> List[str]:
         """Generate executive summary section"""
         lines = ["## 📊 Executive Summary", ""]
 
-        # Function stats
+        # Function stats - use unique counts for display
         total_functions = sum(r.get('total_functions', 0) for r in data.function_comparison.values())
         total_documented = sum(r.get('documented_functions', 0) for r in data.function_comparison.values())
         total_missing = sum(len(r.get('missing_functions', [])) for r in data.function_comparison.values())
+        total_missing_unique = sum(r.get('missing_functions_count', len(r.get('missing_functions', []))) for r in data.function_comparison.values())
 
         # Hooks stats
         hooks_missing_count = len(data.hooks_missing)
 
         # Localization stats
-        unused_keys = len(data.localization_data.get('unused', []))
-        undefined_calls = len(data.localization_data.get('undefined_rows', []))
-        mismatch_count = len(data.localization_data.get('mismatch_rows', []))
-        at_patterns = len(data.localization_data.get('at_pattern_rows', []))
+        undefined_calls = data.localization_data.get('undefined_count', len(data.localization_data.get('undefined_rows', [])))
+        at_patterns = data.localization_data.get('at_pattern_count', len(data.localization_data.get('at_pattern_rows', [])))
 
         lines.extend([
             "### 📋 Function Documentation",
             f"- **Total Functions:** {total_functions}",
             f"- **Documented:** {total_documented} ({(total_documented/total_functions*100):.1f}%)" if total_functions > 0 else "- **Documented:** N/A",
-            f"- **Missing:** {total_missing}",
+            f"- **Missing Functions:** {total_missing} unique ({total_missing_unique} total occurrences)",
             "",
             "### 🎣 Hooks Documentation",
             f"- **Missing Hooks:** {hooks_missing_count}",
             f"- **Documented Hooks:** {len(data.hooks_documented)}",
             "",
             "### 🌐 Localization Analysis",
-            f"- **Unused Keys:** {unused_keys}",
-            f"- **Undefined Calls:** {undefined_calls}",
-            f"- **Argument Mismatches:** {mismatch_count}",
-            f"- **@xxxxx Patterns:** {at_patterns}",
+            f"- **Undefined Calls:** {undefined_calls} unique",
+            f"- **@xxxxx Patterns:** {at_patterns} unique",
             "",
             "---",
             ""
@@ -374,48 +427,50 @@ class FunctionComparisonReportGenerator:
         total_functions = sum(r.get('total_functions', 0) for r in data.function_comparison.values())
         total_documented = sum(r.get('documented_functions', 0) for r in data.function_comparison.values())
         total_missing = sum(len(r.get('missing_functions', [])) for r in data.function_comparison.values())
+        total_missing_unique = sum(r.get('missing_functions_count', len(r.get('missing_functions', []))) for r in data.function_comparison.values())
         total_extra = sum(len(r.get('extra_documented', [])) for r in data.function_comparison.values())
+        total_extra_unique = sum(r.get('extra_documented_count', len(r.get('extra_documented', []))) for r in data.function_comparison.values())
 
         lines.extend([
             f"### Summary Statistics",
             f"- **Files Analyzed:** {total_files}",
             f"- **Total Functions:** {total_functions}",
             f"- **Documented Functions:** {total_documented}",
-            f"- **Missing Documentation:** {total_missing}",
-            f"- **Extra Documentation:** {total_extra}",
+            f"- **Missing Documentation:** {total_missing} unique ({total_missing_unique} total occurrences)",
+            f"- **Extra Documentation:** {total_extra} unique ({total_extra_unique} total occurrences)",
             f"- **Coverage:** {(total_documented/total_functions*100):.1f}%" if total_functions > 0 else "- **Coverage:** N/A",
             "",
         ])
 
-        # Detailed breakdown
-        for file_name, file_data in data.function_comparison.items():
+        # Global missing functions list
+        all_missing = []
+        for file_data in data.function_comparison.values():
+            all_missing.extend(file_data.get('missing_functions', []))
+
+        if all_missing:
             lines.extend([
-                f"### {file_name}",
-                f"- **Functions:** {file_data.get('total_functions', 0)}",
-                f"- **Documented:** {file_data.get('documented_functions', 0)}",
-                f"- **Missing:** {len(file_data.get('missing_functions', []))}",
-                f"- **Extra:** {len(file_data.get('extra_documented', []))}",
+                "### Missing Documentation (Global List)",
+                f"Total: {len(set(all_missing))} unique functions across all files",
                 "",
             ])
+            for func in sorted(set(all_missing)):
+                lines.append(f"- `{func}`")
+            lines.append("")
 
-            # Missing functions
-            missing = file_data.get('missing_functions', [])
-            if missing:
-                lines.append("#### Missing Documentation:")
-                for func in sorted(missing):
-                    func_info = file_data.get('functions', {}).get(func, {})
-                    realm = "Server" if func_info.get('is_server_only') else "Client" if func_info.get('is_client_only') else "Shared"
-                    line = func_info.get('line_number', 'N/A')
-                    lines.append(f"- `{func}` (Line {line}, {realm})")
-                lines.append("")
+        # Global extra documented functions list
+        all_extra = []
+        for file_data in data.function_comparison.values():
+            all_extra.extend(file_data.get('extra_documented', []))
 
-            # Extra documented functions
-            extra = file_data.get('extra_documented', [])
-            if extra:
-                lines.append("#### Extra Documentation (not in code):")
-                for func in sorted(extra):
-                    lines.append(f"- `{func}`")
-                lines.append("")
+        if all_extra:
+            lines.extend([
+                "### Extra Documentation (not in code - Global List)",
+                f"Total: {len(set(all_extra))} unique functions documented but not implemented",
+                "",
+            ])
+            for func in sorted(set(all_extra)):
+                lines.append(f"- `{func}`")
+            lines.append("")
 
         return lines
 
@@ -459,21 +514,15 @@ class FunctionComparisonReportGenerator:
             "### Framework Localization",
             f"- **Language Keys:** {len(loc_data.get('keys', []))}",
             f"- **Total Usages:** {loc_data.get('total_hits', 0)}",
-            f"- **Unused Keys:** {len(loc_data.get('unused', []))}",
-            f"- **Undefined Calls:** {len(loc_data.get('undefined_rows', []))}",
-            f"- **Argument Mismatches:** {len(loc_data.get('mismatch_rows', []))}",
-            f"- **@xxxxx Patterns:** {len(loc_data.get('at_pattern_rows', []))}",
+            f"- **Undefined Calls:** {loc_data.get('undefined_count', len(loc_data.get('undefined_rows', [])))}",
+            f"- **@xxxxx Patterns:** {loc_data.get('at_pattern_count', len(loc_data.get('at_pattern_rows', [])))}",
             "",
         ])
 
         # Issues summary
         issues = []
-        if loc_data.get('unused'):
-            issues.append(f"🔸 {len(loc_data['unused'])} unused keys")
         if loc_data.get('undefined_rows'):
             issues.append(f"🔸 {len(loc_data['undefined_rows'])} undefined calls")
-        if loc_data.get('mismatch_rows'):
-            issues.append(f"🔸 {len(loc_data['mismatch_rows'])} argument mismatches")
         if loc_data.get('at_pattern_rows'):
             issues.append(f"🔸 {len(loc_data['at_pattern_rows'])} @xxxxx patterns")
 
@@ -489,12 +538,6 @@ class FunctionComparisonReportGenerator:
                 lines.append(f"- `{row[4]}` in {row[0]}:{row[1]}:{row[2]} ({row[3]})")
             lines.append("")
 
-        if loc_data.get('unused'):
-            lines.append("### Unused Keys:")
-            for key in loc_data['unused']:
-                lines.append(f"- `{key}`")
-            lines.append("")
-
         return lines
 
     def save_report(self, data: CombinedReportData, output_file: str = None):
@@ -503,8 +546,7 @@ class FunctionComparisonReportGenerator:
         DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         if output_file is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = str(DEFAULT_OUTPUT_DIR / f"function_comparison_report_{timestamp}.md")
+            output_file = str(DEFAULT_OUTPUT_DIR / "report.md")
         else:
             # If user provided a relative path, make it relative to DEFAULT_OUTPUT_DIR
             if not Path(output_file).is_absolute():
@@ -537,11 +579,11 @@ def confirm_analysis_actions(base_path: Path, docs_path: Path, language_file: st
     print(f"   • Language file: {language_file}")
 
     print("\n📤 OUTPUT LOCATION:")
-    print(f"   • Reports directory: {output_dir}")
-    print("   • Report files will be created here")
+    print(f"   • Documentation directory: {output_dir}")
+    print("   • The report.md file will be created/updated here")
 
     print("\n⚠️  POTENTIAL FILESYSTEM CHANGES:")
-    print("   • New report files will be created in the reports directory")
+    print("   • The report.md file will be created/updated in the documentation directory")
     if not no_module_docs:
         print("   • 'docs' folders may be created in module directories")
         print("   • 'libraries.md' and 'hooks.md' files may be created in module docs folders")
@@ -641,7 +683,7 @@ Examples:
                        help=f"Path to main language file (default: {DEFAULT_LANGUAGE_FILE})")
     parser.add_argument("--modules-path", action="append",
                        help=f"Paths to modules directories (default: {DEFAULT_MODULES_PATHS})")
-    parser.add_argument("--output", "-o", help="Output file path (default: auto-generated)")
+    parser.add_argument("--output", "-o", help="Output file path (default: report.md)")
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
     parser.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompts")
     parser.add_argument("--no-module-docs", action="store_true", help="Skip generation of docs in module directories")

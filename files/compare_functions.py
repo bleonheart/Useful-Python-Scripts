@@ -1,435 +1,346 @@
+#!/usr/bin/env python3
+"""
+Function comparison module for analyzing Lua function documentation coverage.
+"""
+
 import os
 import re
-import json
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
 from dataclasses import dataclass
-from collections import defaultdict
+
 
 @dataclass
 class FunctionInfo:
-    """Represents a function found in Lua code"""
+    """Information about a function"""
     name: str
-    file_path: str
     line_number: int
-    is_meta: bool
     is_server_only: bool = False
     is_client_only: bool = False
     parameters: List[str] = None
-    return_type: str = None
+    description: str = ""
 
-@dataclass
-class DocumentationInfo:
-    """Represents documentation for a function"""
-    name: str
-    file_path: str
-    has_purpose: bool = False
-    has_parameters: bool = False
-    has_returns: bool = False
-    has_realm: bool = False
-    has_example: bool = False
+    def __post_init__(self):
+        if self.parameters is None:
+            self.parameters = []
+
 
 class LuaFunctionExtractor:
-    """Extracts function definitions from Lua files"""
-    
-    def __init__(self):
-        self.functions = []
-        self.function_patterns = [
-            # Meta function definitions (must come first - most specific)
-            r'function\s+([a-zA-Z_][a-zA-Z0-9_]*Meta):([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
-            # Dotted function definitions, e.g., function lia.gay.doshitfunction(
-            r'function\s+([A-Za-z_][\w\.]*?)\s*\(',
-            # Method definitions (self:method)
-            r'function\s+([a-zA-Z_][a-zA-Z0-9_]*):([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
-            # Dotted/table function assignments, e.g., lia.gay.doshitfunction = function(
-            r'([A-Za-z_][\w\.]*?)\s*=\s*function\s*\(',
-            # Standard function definitions (single identifier)
-            r'function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
-            # Local function definitions
-            r'local\s+function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
-        ]
-        
-    def extract_functions_from_file(self, file_path: str, is_meta: bool = False) -> List[FunctionInfo]:
-        """Extract all function definitions from a Lua file"""
-        functions = []
-        processed_lines = set()  # Track processed line numbers to avoid duplicates
+    """Extracts functions from Lua files"""
 
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                lines = content.split('\n')
-
-            for line_num, line in enumerate(lines, 1):
-                line = line.strip()
-
-                # Skip if this line was already processed
-                if line_num in processed_lines:
-                    continue
-
-                # Check for SERVER/CLIENT blocks
-                is_server_only = False
-                is_client_only = False
-
-                # Look for function definitions
-                function_found = False
-                for pattern in self.function_patterns:
-                    if function_found:
-                        break  # Stop checking other patterns for this line
-
-                    matches = re.finditer(pattern, line)
-                    for match in matches:
-                        if len(match.groups()) == 1:
-                            # Standard function or table method
-                            func_name = match.group(1)
-                        elif len(match.groups()) == 2:
-                            # Method definition (could be meta or regular)
-                            group1 = match.group(1)
-                            group2 = match.group(2)
-                            func_name = f"{group1}:{group2}"
-                        else:
-                            # Skip if unexpected number of groups
-                            continue
-                        
-                        # Check if this is in a SERVER/CLIENT block
-                        context_lines = lines[max(0, line_num-10):line_num]
-                        for context_line in reversed(context_lines):
-                            if 'if SERVER then' in context_line:
-                                is_server_only = True
-                                break
-                            elif 'if CLIENT then' in context_line:
-                                is_client_only = True
-                                break
-                            elif 'end' in context_line and (is_server_only or is_client_only):
-                                break
-                        
-                        # Extract parameters if possible
-                        param_match = re.search(r'\(([^)]*)\)', line)
-                        parameters = []
-                        if param_match:
-                            param_str = param_match.group(1).strip()
-                            if param_str:
-                                parameters = [p.strip() for p in param_str.split(',')]
-
-                        # Auto-detect meta functions based on naming pattern
-                        is_meta_detected = 'Meta' in func_name and ':' in func_name
-
-                        functions.append(FunctionInfo(
-                            name=func_name,
-                            file_path=file_path,
-                            line_number=line_num,
-                            is_meta=is_meta_detected or is_meta,  # Use either detection or parameter
-                            is_server_only=is_server_only,
-                            is_client_only=is_client_only,
-                            parameters=parameters
-                        ))
-
-                        # Mark this line as processed and stop checking other patterns
-                        processed_lines.add(line_num)
-                        function_found = True
-                        break  # Exit the pattern loop for this line
-                        
-        except Exception as e:
-            print(f"Error reading {file_path}: {e}")
-            
-        return functions
-
-class DocumentationParser:
-    """Parses documentation files to extract function information"""
-    
-    def __init__(self):
-        self.documented_functions = {}
-        
-    def parse_documentation_file(self, file_path: str) -> Dict[str, DocumentationInfo]:
-        """Parse a documentation file and extract function information"""
-        functions = {}
-        
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                
-            # Split content into sections
-            sections = re.split(r'^###\s+', content, flags=re.MULTILINE)
-            
-            for section in sections[1:]:  # Skip first empty section
-                lines = section.split('\n')
-                if not lines:
-                    continue
-                    
-                # Extract function name from first line
-                func_name = lines[0].strip()
-                if not func_name:
-                    continue
-                
-                # Check for documentation elements
-                has_purpose = any('**Purpose**' in line for line in lines)
-                has_parameters = any('**Parameters**' in line for line in lines)
-                has_returns = any('**Returns**' in line for line in lines)
-                has_realm = any('**Realm**' in line for line in lines)
-                has_example = any('**Example Usage**' in line for line in lines)
-                
-                functions[func_name] = DocumentationInfo(
-                    name=func_name,
-                    file_path=file_path,
-                    has_purpose=has_purpose,
-                    has_parameters=has_parameters,
-                    has_returns=has_returns,
-                    has_realm=has_realm,
-                    has_example=has_example
-                )
-                
-        except Exception as e:
-            print(f"Error reading {file_path}: {e}")
-            
-        return functions
-
-class FunctionComparator:
-    """Compares functions between original files and documentation"""
-    
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)
-        self.lua_extractor = LuaFunctionExtractor()
-        self.doc_parser = DocumentationParser()
-        
-        # Paths
-        self.meta_path = self.base_path / "core" / "meta"
-        self.libraries_path = self.base_path / "core" / "libraries"
-        # Go up one level to get to documentation directory
-        docs_base = self.base_path.parent / "documentation"
-        self.docs_meta_path = docs_base / "docs" / "meta"
-        self.docs_libraries_path = docs_base / "docs" / "libraries"
-        
-    def get_lua_files(self) -> List[Tuple[str, bool]]:
-        """Get all Lua files to process"""
-        files = []
-        
-        # Meta files
-        if self.meta_path.exists():
-            for lua_file in self.meta_path.glob("*.lua"):
-                files.append((str(lua_file), True))
-                
-        # Library files
-        if self.libraries_path.exists():
-            for lua_file in self.libraries_path.glob("*.lua"):
-                files.append((str(lua_file), False))
-                
-        return files
-    
-    def get_doc_files(self) -> List[str]:
-        """Get all documentation files to process"""
-        files = []
-        
-        # Meta documentation
-        if self.docs_meta_path.exists():
-            for md_file in self.docs_meta_path.glob("*.md"):
-                files.append(str(md_file))
-                
-        # Library documentation
-        if self.docs_libraries_path.exists():
-            for md_file in self.docs_libraries_path.glob("*.md"):
-                files.append(str(md_file))
-                
-        return files
-    
-    def extract_all_functions(self) -> Dict[str, List[FunctionInfo]]:
-        """Extract all functions from Lua files"""
-        all_functions = defaultdict(list)
-        
-        for lua_file, is_meta in self.get_lua_files():
-            functions = self.lua_extractor.extract_functions_from_file(lua_file, is_meta)
-            file_name = Path(lua_file).stem
-            all_functions[file_name].extend(functions)
-            
-        return dict(all_functions)
-    
-    def extract_all_documentation(self) -> Dict[str, Dict[str, DocumentationInfo]]:
-        """Extract all documentation from markdown files"""
-        all_docs = {}
-        
-        for doc_file in self.get_doc_files():
-            file_name = Path(doc_file).stem
-            # Remove 'lia.' prefix from library docs
-            if file_name.startswith('lia.'):
-                file_name = file_name[4:]
-            all_docs[file_name] = self.doc_parser.parse_documentation_file(doc_file)
-            
-        return all_docs
-    
-    def compare_functions(self) -> Dict[str, Dict]:
-        """Compare functions between Lua files and documentation"""
-        lua_functions = self.extract_all_functions()
-        documentation = self.extract_all_documentation()
-        
-        results = {}
-        
-        for file_name, functions in lua_functions.items():
-            if file_name not in results:
-                results[file_name] = {
-                    'total_functions': len(functions),
-                    'documented_functions': 0,
-                    'missing_functions': [],
-                    'extra_documented': [],
-                    'functions': {}
-                }
-            
-            doc_functions = documentation.get(file_name, {})
-            
-            # Check each function
-            for func in functions:
-                func_name = func.name
-                is_documented = func_name in doc_functions
-                
-                results[file_name]['functions'][func_name] = {
-                    'is_documented': is_documented,
-                    'is_meta': func.is_meta,
-                    'is_server_only': func.is_server_only,
-                    'is_client_only': func.is_client_only,
-                    'line_number': func.line_number,
-                    'parameters': func.parameters or [],
-                    'documentation_quality': {}
-                }
-                
-                if is_documented:
-                    results[file_name]['documented_functions'] += 1
-                    doc_info = doc_functions[func_name]
-                    results[file_name]['functions'][func_name]['documentation_quality'] = {
-                        'has_purpose': doc_info.has_purpose,
-                        'has_parameters': doc_info.has_parameters,
-                        'has_returns': doc_info.has_returns,
-                        'has_realm': doc_info.has_realm,
-                        'has_example': doc_info.has_example
-                    }
+
+    def extract_functions_from_file(self, file_path: str) -> Dict[str, FunctionInfo]:
+        """Extract all functions from a single Lua file"""
+        functions = {}
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"Warning: Could not read {file_path}: {e}")
+            return functions
+
+        lines = content.split('\n')
+
+        # Pattern for function declarations - only capture library functions that should be documented
+        # Matches: function lia.xxxxx.xxxx(...) and lia.xxxxx.xxxx = function(...)
+        # Also captures other global library functions like ix., nut., etc.
+        func_pattern = r'^\s*function\s+((?:lia|ix|nut)\.[A-Za-z_][\w\.]*)\s*\(([^)]*)\)|^\s*((?:lia|ix|nut)\.[A-Za-z_][\w\.]*)\s*=\s*function\s*\(([^)]*)\)'
+
+        for line_num, line in enumerate(lines, 1):
+            # Check for function lia.xxxxx.xxxx(...) pattern
+            match1 = re.search(r'^\s*function\s+((?:lia|ix|nut)\.[A-Za-z_][\w\.]*)\s*\(([^)]*)\)', line)
+            if match1:
+                func_name = match1.group(1)
+                params = match1.group(2)
+            else:
+                # Check for lia.xxxxx.xxxx = function(...) pattern
+                match2 = re.search(r'^\s*((?:lia|ix|nut)\.[A-Za-z_][\w\.]*)\s*=\s*function\s*\(([^)]*)\)', line)
+                if match2:
+                    func_name = match2.group(1)
+                    params = match2.group(2)
                 else:
-                    results[file_name]['missing_functions'].append(func_name)
-            
-            # Check for extra documented functions
-            lua_func_names = {f.name for f in functions}
-            for doc_func_name in doc_functions:
-                if doc_func_name not in lua_func_names:
-                    results[file_name]['extra_documented'].append(doc_func_name)
-        
-        return results
-    
-    def generate_report(self, results: Dict[str, Dict]) -> str:
-        """Generate a detailed report of the comparison"""
-        report = []
-        report.append("# Lilia Function Documentation Comparison Report")
-        report.append("=" * 60)
-        report.append("")
-        
-        total_files = len(results)
-        total_functions = sum(r['total_functions'] for r in results.values())
-        total_documented = sum(r['documented_functions'] for r in results.values())
-        total_missing = sum(len(r['missing_functions']) for r in results.values())
-        
-        report.append(f"## Summary")
-        report.append(f"- **Total Files Analyzed**: {total_files}")
-        report.append(f"- **Total Functions Found**: {total_functions}")
-        report.append(f"- **Documented Functions**: {total_documented}")
-        report.append(f"- **Missing Documentation**: {total_missing}")
-        report.append(f"- **Documentation Coverage**: {(total_documented/total_functions*100):.1f}%")
-        report.append("")
-        
-        # Detailed breakdown by file
-        for file_name, data in results.items():
-            report.append(f"## {file_name}")
-            report.append(f"- **Total Functions**: {data['total_functions']}")
-            report.append(f"- **Documented**: {data['documented_functions']}")
-            report.append(f"- **Missing**: {len(data['missing_functions'])}")
-            report.append(f"- **Extra Documented**: {len(data['extra_documented'])}")
-            report.append("")
-            
-            if data['missing_functions']:
-                report.append("### Missing Documentation:")
-                for func_name in sorted(data['missing_functions']):
-                    func_info = data['functions'][func_name]
-                    realm = "Server" if func_info['is_server_only'] else "Client" if func_info['is_client_only'] else "Shared"
-                    report.append(f"- `{func_name}` (Line {func_info['line_number']}, {realm})")
-                report.append("")
-            
-            if data['extra_documented']:
-                report.append("### Extra Documentation (not found in code):")
-                for func_name in sorted(data['extra_documented']):
-                    report.append(f"- `{func_name}`")
-                report.append("")
-            
-            # Quality analysis for documented functions
-            documented_funcs = [f for f in data['functions'].values() if f['is_documented']]
-            if documented_funcs:
-                report.append("### Documentation Quality Analysis:")
-                quality_stats = {
-                    'has_purpose': sum(1 for f in documented_funcs if f['documentation_quality'].get('has_purpose', False)),
-                    'has_parameters': sum(1 for f in documented_funcs if f['documentation_quality'].get('has_parameters', False)),
-                    'has_returns': sum(1 for f in documented_funcs if f['documentation_quality'].get('has_returns', False)),
-                    'has_realm': sum(1 for f in documented_funcs if f['documentation_quality'].get('has_realm', False)),
-                    'has_example': sum(1 for f in documented_funcs if f['documentation_quality'].get('has_example', False))
-                }
-                
-                for quality, count in quality_stats.items():
-                    percentage = (count / len(documented_funcs)) * 100
-                    report.append(f"- **{quality.replace('_', ' ').title()}**: {count}/{len(documented_funcs)} ({percentage:.1f}%)")
-                report.append("")
-        
-        return "\n".join(report)
-    
-    def save_detailed_json(self, results: Dict[str, Dict], output_file: str):
-        """Save detailed results to JSON file"""
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
+                    continue  # Skip if neither pattern matched
 
-def main():
-    """Main function"""
-    # Get the script directory (should be in documentation folder)
-    script_dir = Path(__file__).parent
-    base_path = script_dir.parent  # Go up one level to get to Lilia root
-    
-    print("Lilia Function Documentation Comparison Tool")
-    print("=" * 50)
-    print(f"Base path: {base_path}")
-    print()
-    
-    # Initialize comparator
-    comparator = FunctionComparator(str(base_path))
-    
-    # Extract and compare functions
-    print("Extracting functions from Lua files...")
-    lua_functions = comparator.extract_all_functions()
-    print(f"Found {sum(len(funcs) for funcs in lua_functions.values())} functions in {len(lua_functions)} files")
-    
-    print("Extracting documentation from markdown files...")
-    documentation = comparator.extract_all_documentation()
-    print(f"Found documentation for {sum(len(docs) for docs in documentation.values())} functions in {len(documentation)} files")
-    
-    print("Comparing functions...")
-    results = comparator.compare_functions()
-    
-    # Generate report
-    print("Generating report...")
-    report = comparator.generate_report(results)
-    
-    # Save report
-    report_file = script_dir / "function_comparison_report.md"
-    with open(report_file, 'w', encoding='utf-8') as f:
-        f.write(report)
-    
-    # Save detailed JSON
-    json_file = script_dir / "function_comparison_detailed.json"
-    comparator.save_detailed_json(results, str(json_file))
-    
-    print(f"\nReport saved to: {report_file}")
-    print(f"Detailed JSON saved to: {json_file}")
-    print("\nSummary:")
-    
-    # Print summary
-    total_files = len(results)
-    total_functions = sum(r['total_functions'] for r in results.values())
-    total_documented = sum(r['documented_functions'] for r in results.values())
-    total_missing = sum(len(r['missing_functions']) for r in results.values())
-    
-    print(f"- Files analyzed: {total_files}")
-    print(f"- Total functions: {total_functions}")
-    print(f"- Documented: {total_documented}")
-    print(f"- Missing: {total_missing}")
-    print(f"- Coverage: {(total_documented/total_functions*100):.1f}%")
+            # Parse parameters
+            param_list = []
+            if params and params.strip():
+                param_list = [p.strip() for p in params.split(',') if p.strip()]
 
-if __name__ == "__main__":
-    main()
+            # Determine realm (server/client/shared)
+            is_server = self._is_server_realm(content, line_num)
+            is_client = self._is_client_realm(content, line_num)
+
+            functions[func_name] = FunctionInfo(
+                name=func_name,
+                line_number=line_num,
+                is_server_only=is_server and not is_client,
+                is_client_only=is_client and not is_server,
+                parameters=param_list
+            )
+
+        return functions
+
+    def _is_server_realm(self, content: str, line_num: int) -> bool:
+        """Check if function is in server realm"""
+        lines = content.split('\n')
+        start_line = max(0, line_num - 20)  # Look 20 lines back
+
+        for i in range(start_line, line_num):
+            line = lines[i].strip().lower()
+            if 'if server' in line or 'if (server)' in line:
+                return True
+            if 'if client' in line or 'if (client)' in line:
+                return False
+            if 'server' in line and ('then' in line or '{' in line):
+                return True
+
+        return False
+
+    def _is_client_realm(self, content: str, line_num: int) -> bool:
+        """Check if function is in client realm"""
+        lines = content.split('\n')
+        start_line = max(0, line_num - 20)  # Look 20 lines back
+
+        for i in range(start_line, line_num):
+            line = lines[i].strip().lower()
+            if 'if client' in line or 'if (client)' in line:
+                return True
+            if 'if server' in line or 'if (server)' in line:
+                return False
+            if 'client' in line and ('then' in line or '{' in line):
+                return True
+
+        return False
+
+    def extract_all_functions(self) -> Dict[str, Dict[str, FunctionInfo]]:
+        """Extract functions from all Lua files in the gamemode"""
+        all_functions = {}
+
+        # Scan all .lua files
+        for root, dirs, files in os.walk(self.base_path):
+            # Skip certain directories
+            dirs[:] = [d for d in dirs if d not in ['node_modules', '.git']]
+
+            for file in files:
+                if file.endswith('.lua'):
+                    file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, self.base_path)
+
+                    functions = self.extract_functions_from_file(file_path)
+                    if functions:
+                        all_functions[relative_path] = functions
+
+        return all_functions
+
+
+class DocumentationParser:
+    """Parses documentation files to extract documented functions"""
+
+    def __init__(self, docs_path: str):
+        self.docs_path = Path(docs_path)
+
+    def extract_documented_functions(self) -> Dict[str, Dict[str, FunctionInfo]]:
+        """Extract all documented functions from documentation files"""
+        documented_functions = {}
+
+        # Look for library documentation files
+        libraries_path = self.docs_path / "docs" / "libraries"
+        if libraries_path.exists():
+            for md_file in libraries_path.glob("*.md"):
+                if md_file.name.startswith("lia."):
+                    functions = self._parse_library_file(md_file)
+                    if functions:
+                        documented_functions[md_file.name] = functions
+
+        # Look for meta documentation files
+        meta_path = self.docs_path / "docs" / "meta"
+        if meta_path.exists():
+            for md_file in meta_path.glob("*.md"):
+                functions = self._parse_meta_file(md_file)
+                if functions:
+                    documented_functions[f"meta/{md_file.name}"] = functions
+
+        return documented_functions
+
+    def _parse_library_file(self, file_path: Path) -> Dict[str, FunctionInfo]:
+        """Parse a library documentation file"""
+        functions = {}
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"Warning: Could not read {file_path}: {e}")
+            return functions
+
+        lines = content.split('\n')
+
+        # Look for function headers in the format "### function.name"
+        for line_num, line in enumerate(lines, 1):
+            stripped = line.strip()
+
+            # Look for function headers like "### lia.include"
+            func_match = re.search(r'^###+\s+([A-Za-z_][\w\.]*)\s*$', stripped)
+            if func_match:
+                func_name = func_match.group(1)
+                # Extract parameters from the following lines
+                params = self._extract_parameters_from_docs(lines, line_num)
+
+                functions[func_name] = FunctionInfo(
+                    name=func_name,
+                    line_number=line_num,
+                    parameters=params
+                )
+
+        return functions
+
+    def _extract_parameters_from_docs(self, lines: List[str], start_line: int) -> List[str]:
+        """Extract parameters from documentation following a function header"""
+        params = []
+
+        # Look for the Parameters section
+        in_params_section = False
+        for i in range(start_line, min(start_line + 50, len(lines))):  # Look up to 50 lines ahead
+            line = lines[i].strip()
+
+            if line.lower() == '**parameters**':
+                in_params_section = True
+                continue
+            elif line.startswith('**') and in_params_section:
+                # We've moved to the next section
+                break
+            elif in_params_section and line.startswith('* `'):
+                # Extract parameter name from format: * `param` (*type*): description
+                param_match = re.search(r'\* `([^`]+)`', line)
+                if param_match:
+                    params.append(param_match.group(1))
+
+        return params
+
+    def _parse_meta_file(self, file_path: Path) -> Dict[str, FunctionInfo]:
+        """Parse a meta documentation file"""
+        functions = {}
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"Warning: Could not read {file_path}: {e}")
+            return functions
+
+        lines = content.split('\n')
+
+        # Look for method definitions
+        for line_num, line in enumerate(lines, 1):
+            # Look for method signatures like: object:method(param)
+            method_match = re.search(r'`([A-Za-z_][\w\.:]*)\(([^)]*)\)`', line)
+            if method_match:
+                method_name = method_match.group(1)
+                params_str = method_match.group(2)
+                params = [p.strip() for p in params_str.split(',') if p.strip()]
+
+                functions[method_name] = FunctionInfo(
+                    name=method_name,
+                    line_number=line_num,
+                    parameters=params
+                )
+
+        return functions
+
+
+class FunctionComparator:
+    """Compares functions between code and documentation"""
+
+    def __init__(self, base_path: str, docs_path: str = None):
+        self.base_path = Path(base_path)
+        self.docs_path = Path(docs_path) if docs_path else self.base_path.parent / "documentation"
+
+        self.extractor = LuaFunctionExtractor(str(self.base_path))
+        self.parser = DocumentationParser(str(self.docs_path))
+
+    def compare_functions(self) -> Dict[str, Dict]:
+        """Compare functions between code and documentation"""
+        print("Extracting functions from code...")
+        code_functions = self.extractor.extract_all_functions()
+
+        print("Extracting functions from documentation...")
+        doc_functions = self.parser.extract_documented_functions()
+
+        print("Comparing functions...")
+        comparison_results = {}
+
+        # Flatten all code functions for global comparison
+        all_code_functions = set()
+        for file_functions in code_functions.values():
+            all_code_functions.update(file_functions.keys())
+
+        # Flatten all documented functions
+        all_documented_functions = set()
+        for doc_file_functions in doc_functions.values():
+            all_documented_functions.update(doc_file_functions.keys())
+
+        # Find truly extra documented functions (documented but don't exist in any code file)
+        # Filter out global functions that are not expected to follow library naming patterns
+        excluded_functions = {'L'}  # Global localization function
+        filtered_documented = {func for func in all_documented_functions if func not in excluded_functions}
+        extra_documented = sorted(filtered_documented - all_code_functions)
+
+        # Compare each code file with documentation
+        for file_path, functions in code_functions.items():
+            file_comparison = self._compare_file_functions(file_path, functions, doc_functions)
+            if file_comparison:
+                comparison_results[file_path] = file_comparison
+
+        # Add global extra documented functions to the first file's results for reporting
+        if comparison_results and extra_documented:
+            first_file = next(iter(comparison_results.keys()))
+            comparison_results[first_file]['extra_documented'] = extra_documented
+            comparison_results[first_file]['extra_documented_count'] = len(extra_documented)
+
+        return comparison_results
+
+    def _compare_file_functions(self, file_path: str, code_functions: Dict[str, FunctionInfo],
+                               doc_functions: Dict[str, Dict[str, FunctionInfo]]) -> Dict:
+        """Compare functions for a single file"""
+        # Flatten all documented functions
+        all_documented = {}
+        for doc_file, funcs in doc_functions.items():
+            for func_name, func_info in funcs.items():
+                all_documented[func_name] = func_info
+
+        # Find functions in this file that are documented
+        documented_in_file = {}
+        missing_functions = []
+
+        for func_name, func_info in code_functions.items():
+            if func_name in all_documented:
+                documented_in_file[func_name] = func_info
+            else:
+                missing_functions.append(func_name)
+
+        # Don't list "extra documented" functions per-file - this causes false positives
+        # Instead, we'll handle this globally in the main comparison method
+        extra_documented = []
+
+        # Create unique lists for missing and extra functions
+        unique_missing = sorted(set(missing_functions))
+        unique_extra = sorted(set(extra_documented))
+
+        return {
+            'total_functions': len(code_functions),
+            'documented_functions': len(documented_in_file),
+            'missing_functions': unique_missing,
+            'extra_documented': unique_extra,
+            'functions': {name: {
+                'line_number': info.line_number,
+                'is_server_only': info.is_server_only,
+                'is_client_only': info.is_client_only,
+                'parameters': info.parameters
+            } for name, info in code_functions.items()},
+            # Keep original counts for detailed analysis
+            'missing_functions_count': len(missing_functions),
+            'extra_documented_count': len(extra_documented)
+        }
