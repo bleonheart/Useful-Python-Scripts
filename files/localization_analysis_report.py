@@ -6,15 +6,14 @@ import shutil
 import sys
 
 DEFAULT_FRAMEWORK_GAMEMODE_DIR = r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode"
-DEFAULT_FRAMEWORK_LANGUAGES_DIR = (
-    r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode\languages"
-)
-DEFAULT_MODULES_ROOT = r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\gitmodules"
-DEFAULT_MODULES_DIR = r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\modules"
-DEFAULT_DEVMODULES_DIR = r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\devmodules"
+DEFAULT_LANGUAGE_FILE = r"E:\GMOD\Server\garrysmod\gamemodes\Lilia\gamemode\languages\english.lua"
+DEFAULT_MODULES_PATHS = [
+    r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\gitmodules",
+    r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\modules",
+    r"E:\GMOD\Server\garrysmod\gamemodes\metrorp\devmodules",
+]
 DEFAULT_OUT_PATTERN = "localization_report_{name}.md"
 DEFAULT_LIMIT = 500
-
 
 def unquote(v):
     if not v:
@@ -109,21 +108,11 @@ def extract_block(s, start, open_ch, close_ch):
                     long_eq = eqs
                     i = k + 1
                     continue
-        if (
-            ch == open_ch
-            and not in_str
-            and not in_line_comment
-            and not in_block_comment
-        ):
+        if ch == open_ch and not in_str and not in_line_comment and not in_block_comment:
             depth += 1
             if depth == 1:
                 start_body = i + 1
-        elif (
-            ch == close_ch
-            and not in_str
-            and not in_line_comment
-            and not in_block_comment
-        ):
+        elif ch == close_ch and not in_str and not in_line_comment and not in_block_comment:
             depth -= 1
             if depth == 0:
                 return s[start_body:i], i
@@ -450,40 +439,28 @@ def count_placeholders(fmt):
 
 
 def find_at_patterns(src):
-    """
-    Find all @xxxxx patterns in source code.
-    Returns a list of tuples: (pattern, position, context)
-    """
     patterns = []
     n = len(src)
     i = 0
-    
     while i < n:
         if src[i] == "@":
             j = i + 1
-            # Allow alphanumeric, underscore, and common identifier characters
             while j < n and (src[j] == "_" or src[j].isalnum() or src[j] in ".-"):
                 j += 1
-            
-            if j > i + 1:  # We found a pattern after @
+            if j > i + 1:
                 pattern = src[i:j]
-                string_id = pattern[1:]  # Remove the @
-                
-                # Skip specific patterns that are not localization keys
+                string_id = pattern[1:]
                 skip_patterns = ["liliaplayer", "lilia", "lia"]
                 if string_id not in skip_patterns and len(string_id) > 1:
-                    # Get some context around the pattern
                     start_context = max(0, i - 20)
                     end_context = min(n, j + 20)
-                    context = src[start_context:end_context].replace('\n', ' ').replace('\r', ' ')
-                    
+                    context = src[start_context:end_context].replace("\n", " ").replace("\r", " ")
                     patterns.append((pattern, i, context))
                 i = j
             else:
                 i += 1
         else:
             i += 1
-    
     return patterns
 
 
@@ -532,13 +509,12 @@ def iter_localization_calls(src):
                 in_line_comment = True
                 i += 2
                 continue
-            # Check for @stringID pattern
             if ch == "@":
                 j = i + 1
                 while j < n and (src[j] == "_" or src[j].isalnum() or src[j] in ".-"):
                     j += 1
-                if j > i + 1:  # We found a stringID after @
-                    string_id = src[i+1:j]
+                if j > i + 1:
+                    string_id = src[i + 1 : j]
                     skip_patterns = ["liliaplayer", "lilia", "lia"]
                     if string_id not in skip_patterns and len(string_id) > 1:
                         yield (string_id, 0, "pattern:@stringID", i)
@@ -611,25 +587,13 @@ def iter_localization_calls(src):
                                                 yield_key = unquote(mm.group(1))
                                                 yield (yield_key, 0, kindname, posi)
 
-                                        if hook_name in (
-                                            "AddSection",
-                                            "AddTextField",
-                                            "AddBarField",
-                                        ):
+                                        if hook_name in ("AddSection", "AddTextField", "AddBarField"):
                                             kindname = f"hook:{hook_name}"
                                             if len(args) >= 2:
-                                                for tup in yield_if_literal(
-                                                    args[1], kindname, i
-                                                ):
+                                                for tup in yield_if_literal(args[1], kindname, i):
                                                     yield tup
-                                            if (
-                                                hook_name
-                                                in ("AddTextField", "AddBarField")
-                                                and len(args) >= 4
-                                            ):
-                                                for tup in yield_if_literal(
-                                                    args[3], kindname, i
-                                                ):
+                                            if hook_name in ("AddTextField", "AddBarField") and len(args) >= 4:
+                                                for tup in yield_if_literal(args[3], kindname, i):
                                                     yield tup
                                 i = endpos + 1
                                 continue
@@ -655,10 +619,7 @@ def iter_localization_calls(src):
                                     k1 = yield_if_literal(args[0])
                                     if k1 is not None:
                                         yield (k1, 0, kind, i)
-                                if (
-                                    name in ("AddTextField", "AddBarField")
-                                    and len(args) >= 3
-                                ):
+                                if name in ("AddTextField", "AddBarField") and len(args) >= 3:
                                     k2 = yield_if_literal(args[2])
                                     if k2 is not None:
                                         yield (k2, 0, kind, i)
@@ -696,12 +657,7 @@ def iter_localization_calls(src):
                                             )
                                             if mm:
                                                 key = unquote(mm.group(1))
-                                                yield (
-                                                    key,
-                                                    0,
-                                                    "call:lia.keybind.add",
-                                                    i,
-                                                )
+                                                yield (key, 0, "call:lia.keybind.add", i)
                                         i = endpos + 1
                                         continue
                 i = j
@@ -751,10 +707,6 @@ def scan_usages(scan_dir, language_file, keys):
 
 
 def scan_at_patterns(scan_dir, language_file):
-    """
-    Scan for @xxxxx patterns in all Lua files.
-    Returns a list of tuples: (file_path, line, col, pattern, context)
-    """
     at_patterns = []
     for root, _, files in os.walk(scan_dir):
         for name in files:
@@ -789,9 +741,7 @@ def scan_localization_calls(scan_dir, language_file, keys, placeholders):
                 src = f.read()
             starts = build_line_starts(src)
             for key, num_extra, kind, pos in iter_localization_calls(src):
-                # Skip @stringID patterns that are actually in language files
                 if kind == "pattern:@stringID" and os.path.basename(path).lower().endswith(".lua"):
-                    # Check if this file is likely a language file by looking for LANGUAGE patterns
                     if "LANGUAGE" in src and ("LANGUAGE." in src or "LANGUAGE[" in src or "LANGUAGE = {" in src):
                         continue
                 all_used_keys.add(key)
@@ -1578,10 +1528,8 @@ def debug_language_file_parsing(language_file, keys_to_delete):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--framework-gamemode-dir", default=DEFAULT_FRAMEWORK_GAMEMODE_DIR)
-    p.add_argument("--framework-languages-dir", default=DEFAULT_FRAMEWORK_LANGUAGES_DIR)
-    p.add_argument("--modules-root", default=DEFAULT_MODULES_ROOT)
-    p.add_argument("--modules-dir", default=DEFAULT_MODULES_DIR)
-    p.add_argument("--devmodules-dir", default=DEFAULT_DEVMODULES_DIR)
+    p.add_argument("--language-file", default=DEFAULT_LANGUAGE_FILE)
+    p.add_argument("--modules-path", dest="modules_paths", action="append")
     p.add_argument("--out-pattern", default=DEFAULT_OUT_PATTERN)
     p.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     p.add_argument("--format", choices=["auto", "md", "txt"], default="auto")
@@ -1590,23 +1538,23 @@ def main():
     p.add_argument("--delete-unused", action="store_true")
     p.add_argument("--remove-duplicates", action="store_true")
     p.add_argument("--remove-missing-from-code", action="store_true")
-    p.add_argument("--show-at-patterns", action="store_true", help="Show detailed @xxxxx pattern detection")
+    p.add_argument("--show-at-patterns", action="store_true")
     a = p.parse_args()
     if not os.path.isdir(a.framework_gamemode_dir):
         print("Framework dir not found", file=sys.stderr)
         sys.exit(1)
-    if not os.path.isdir(a.framework_languages_dir):
-        print("Framework languages dir not found", file=sys.stderr)
+    if not os.path.isfile(a.language_file):
+        print("Language file not found", file=sys.stderr)
         sys.exit(1)
-    if not os.path.isdir(a.modules_root):
-        print("Modules root not found", file=sys.stderr)
+    modules_paths = a.modules_paths if a.modules_paths else list(DEFAULT_MODULES_PATHS)
+    valid_modules_paths = [mp for mp in modules_paths if os.path.isdir(mp)]
+    if not valid_modules_paths:
+        print("No valid modules paths found", file=sys.stderr)
         sys.exit(1)
-    names = [
-        f for f in os.listdir(a.framework_languages_dir) if f.lower().endswith(".lua")
-    ]
-    if not names:
-        print("No framework language files found", file=sys.stderr)
-        sys.exit(1)
+    try:
+        modules_root_common = os.path.commonpath(valid_modules_paths)
+    except Exception:
+        modules_root_common = valid_modules_paths[0]
     fmt = a.format
     if fmt == "auto":
         ext = os.path.splitext(a.out_pattern)[1].lower()
@@ -1617,91 +1565,83 @@ def main():
     modules_results = []
     per_lang_dup_counts = {}
     framework_by_lang = {}
-    for fname in sorted(names):
-        lf = os.path.join(a.framework_languages_dir, fname)
-        lang = os.path.splitext(os.path.basename(lf))[0]
-        framework = analyze_data(lf, a.framework_gamemode_dir)
-        framework_results.append((lang, framework))
-        framework_by_lang[lang] = framework
-        framework_key_set = set(framework["keys"])
-        framework_lang_map = framework["lang_map"]
-        modules = []
-        module_dirs = [a.modules_root, a.modules_dir, a.devmodules_dir]
-        for module_dir in module_dirs:
-            if not os.path.isdir(module_dir):
+    lf = os.path.abspath(a.language_file)
+    lang = os.path.splitext(os.path.basename(lf))[0]
+    framework = analyze_data(lf, a.framework_gamemode_dir)
+    framework_results.append((lang, framework))
+    framework_by_lang[lang] = framework
+    framework_key_set = set(framework["keys"])
+    framework_lang_map = framework["lang_map"]
+    modules = []
+    for base in valid_modules_paths:
+        for mname in sorted(os.listdir(base)):
+            mdir = os.path.join(base, mname)
+            if not os.path.isdir(mdir):
                 continue
-            for mname in sorted(os.listdir(module_dir)):
-                mdir = os.path.join(module_dir, mname)
-                if not os.path.isdir(mdir):
-                    continue
-                mlf = os.path.join(mdir, "languages", f"{lang}.lua")
-                if not os.path.isfile(mlf):
-                    continue
-                mdata = analyze_data(mlf, mdir)
-                missing = mdata["undefined_key_names"]
-                covered = [k for k in missing if k in framework_key_set]
-                missing_new = [k for k in missing if k not in framework_key_set]
-                framework_values = {k: framework_lang_map.get(k, "") for k in covered}
-                module_defined_keys = set(mdata["lang_map"].keys())
-                duplicates_with_framework = sorted(module_defined_keys & framework_key_set)
-                if duplicates_with_framework:
-                    any_duplicates = True
-                modules.append(
-                    {
-                        "name": f"{os.path.basename(module_dir)}/{mname}",
-                        "module_dir": mdir,
-                        "language_file": mlf,
-                        "missing": missing,
-                        "covered_by_framework": covered,
-                        "missing_not_in_framework": missing_new,
-                        "framework_values": framework_values,
-                        "unused": mdata["unused"],
-                        "lang_map": mdata["lang_map"],
-                        "duplicates_with_framework": duplicates_with_framework,
-                        "keys_duplicating_framework": list(module_defined_keys & framework_key_set),
-                    }
-                )
-                if mdata["unused"]:
-                    any_unused = True
-        modules_results.append((lang, modules))
-        if framework["unused"]:
-            any_unused = True
-        out_report = a.out_pattern.format(name=lang)
-        dt = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        modules_with_problems = [m for m in modules if m["missing"] or m.get("duplicates_with_framework") or m.get("keys_duplicating_framework")]
-        if fmt == "md":
-            with open(out_report, "w", encoding="utf-8", newline="") as f:
-                f.write(f"# Localization Analysis Report ({lang})\n\n")
-                f.write(f"Generated: {md_code(dt)}\n\n")
-                f.write("## Framework\n\n")
-                write_framework_md(f, framework, a.limit)
-                f.write("## Modules\n\n")
-                write_modules_md(f, modules_with_problems, a.limit, a.modules_root)
-        else:
-            with open(out_report, "w", encoding="utf-8", newline="") as f:
-                f.write(f"Localization Analysis Report ({lang})\n")
-                f.write(
-                    "=" * (len("Localization Analysis Report") + len(lang) + 3) + "\n\n"
-                )
-                f.write(f"Generated: {dt}\n\n")
-                f.write("Framework\n")
-                f.write("---------\n")
-                write_framework_txt(f, framework, a.limit)
-                f.write("Modules\n")
-                f.write("-------\n")
-                write_modules_txt(f, modules_with_problems, a.limit, a.modules_root)
-        print(out_report)
-        per_lang_dup_counts[lang] = sum(len(m["duplicates_with_framework"]) for m in modules)
-        
-        # Show @xxxxx pattern detection results if requested
-        if a.show_at_patterns and framework["at_pattern_rows"]:
-            print(f"\n@xxxxx Patterns found in {lang}:")
-            for r in framework["at_pattern_rows"][:10]:  # Show first 10
-                context = r[4][:60] + "..." if len(r[4]) > 60 else r[4]
-                print(f"  {r[0]}:{r[1]}:{r[2]} - {r[3]} ({context})")
-            if len(framework["at_pattern_rows"]) > 10:
-                print(f"  ... and {len(framework['at_pattern_rows']) - 10} more patterns")
-            print()
+            mlf = os.path.join(mdir, "languages", f"{lang}.lua")
+            if not os.path.isfile(mlf):
+                continue
+            mdata = analyze_data(mlf, mdir)
+            missing = mdata["undefined_key_names"]
+            covered = [k for k in missing if k in framework_key_set]
+            missing_new = [k for k in missing if k not in framework_key_set]
+            framework_values = {k: framework_lang_map.get(k, "") for k in covered}
+            module_defined_keys = set(mdata["lang_map"].keys())
+            duplicates_with_framework = sorted(module_defined_keys & framework_key_set)
+            if duplicates_with_framework:
+                any_duplicates = True
+            modules.append(
+                {
+                    "name": f"{os.path.basename(base)}/{mname}",
+                    "module_dir": mdir,
+                    "language_file": mlf,
+                    "missing": missing,
+                    "covered_by_framework": covered,
+                    "missing_not_in_framework": missing_new,
+                    "framework_values": framework_values,
+                    "unused": mdata["unused"],
+                    "lang_map": mdata["lang_map"],
+                    "duplicates_with_framework": duplicates_with_framework,
+                    "keys_duplicating_framework": list(module_defined_keys & framework_key_set),
+                }
+            )
+            if mdata["unused"]:
+                any_unused = True
+    modules_results.append((lang, modules))
+    if framework["unused"]:
+        any_unused = True
+    out_report = a.out_pattern.format(name=lang)
+    dt = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    modules_with_problems = [m for m in modules if m["missing"] or m.get("duplicates_with_framework") or m.get("keys_duplicating_framework")]
+    if fmt == "md":
+        with open(out_report, "w", encoding="utf-8", newline="") as f:
+            f.write(f"# Localization Analysis Report ({lang})\n\n")
+            f.write(f"Generated: {md_code(dt)}\n\n")
+            f.write("## Framework\n\n")
+            write_framework_md(f, framework, a.limit)
+            f.write("## Modules\n\n")
+            write_modules_md(f, modules_with_problems, a.limit, modules_root_common)
+    else:
+        with open(out_report, "w", encoding="utf-8", newline="") as f:
+            f.write(f"Localization Analysis Report ({lang})\n")
+            f.write("=" * (len("Localization Analysis Report") + len(lang) + 3) + "\n\n")
+            f.write(f"Generated: {dt}\n\n")
+            f.write("Framework\n")
+            f.write("---------\n")
+            write_framework_txt(f, framework, a.limit)
+            f.write("Modules\n")
+            f.write("-------\n")
+            write_modules_txt(f, modules_with_problems, a.limit, modules_root_common)
+    print(out_report)
+    per_lang_dup_counts[lang] = sum(len(m["duplicates_with_framework"]) for m in modules)
+    if a.show_at_patterns and framework["at_pattern_rows"]:
+        print(f"\n@xxxxx Patterns found in {lang}:")
+        for r in framework["at_pattern_rows"][:10]:
+            context = r[4][:60] + "..." if len(r[4]) > 60 else r[4]
+            print(f"  {r[0]}:{r[1]}:{r[2]} - {r[3]} ({context})")
+        if len(framework["at_pattern_rows"]) > 10:
+            print(f"  ... and {len(framework['at_pattern_rows']) - 10} more patterns")
+        print()
     if any_unused:
         proceed_unused = a.yes or a.delete_unused
         if not proceed_unused:
@@ -1906,5 +1846,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-    
