@@ -881,32 +881,29 @@ def write_framework_md(f, data, limit):
     if not data["unused"]:
         f.write("_None_\n\n")
     else:
-        write_markdown_table(f, ["Key"], [[md_code(k)] for k in data["unused"][:limit]])
-        if len(data["unused"]) > limit:
-            f.write(f'Showing first {limit} of {len(data["unused"])}.\n\n')
+        write_markdown_table(f, ["Key"], [[md_code(k)] for k in data["unused"]])
+        f.write("\n")
     f.write("### Keys Used But Not Defined\n\n")
     if not data["undefined_key_names"]:
         f.write("_None_\n\n")
     else:
         write_markdown_table(
-            f, ["Key"], [[md_code(k)] for k in data["undefined_key_names"][:limit]]
+            f, ["Key"], [[md_code(k)] for k in data["undefined_key_names"]]
         )
-        if len(data["undefined_key_names"]) > limit:
-            f.write(f'Showing first {limit} of {len(data["undefined_key_names"])}.\n\n')
+        f.write("\n")
     f.write("### @xxxxx Patterns Found\n\n")
     if not data["at_pattern_rows"]:
         f.write("_None_\n\n")
     else:
         rows = []
-        for r in data["at_pattern_rows"][:limit]:
+        for r in data["at_pattern_rows"]:
             file_disp = md_code(r[0])
             lc = f"{r[1]}:{r[2]}"
             pattern = md_code(r[3])
             context = md_code(r[4][:50] + "..." if len(r[4]) > 50 else r[4])
             rows.append([file_disp, lc, pattern, context])
         write_markdown_table(f, ["File", "Line:Col", "Pattern", "Context"], rows)
-        if len(data["at_pattern_rows"]) > limit:
-            f.write(f'Showing first {limit} of {len(data["at_pattern_rows"])}.\n\n')
+        f.write("\n")
 
 
 def write_framework_txt(f, data, limit):
@@ -954,10 +951,8 @@ def write_framework_txt(f, data, limit):
     f.write("-----------\n")
     if data["unused"]:
         write_header(f, ["key"])
-        for k in data["unused"][:limit]:
+        for k in data["unused"]:
             f.write(f"{k}\n")
-        if len(data["unused"]) > limit:
-            f.write(f'... ({len(data["unused"]) - limit} more)\n')
         f.write("\n")
     else:
         f.write("None\n\n")
@@ -965,10 +960,8 @@ def write_framework_txt(f, data, limit):
     f.write("-------------------------\n")
     if data["undefined_key_names"]:
         write_header(f, ["key"])
-        for k in data["undefined_key_names"][:limit]:
+        for k in data["undefined_key_names"]:
             f.write(f"{k}\n")
-        if len(data["undefined_key_names"]) > limit:
-            f.write(f'... ({len(data["undefined_key_names"]) - limit} more)\n')
         f.write("\n")
     else:
         f.write("None\n\n")
@@ -976,11 +969,9 @@ def write_framework_txt(f, data, limit):
     f.write("----------------------\n")
     if data["at_pattern_rows"]:
         write_header(f, ["file", "line", "col", "pattern", "context"])
-        for r in data["at_pattern_rows"][:limit]:
+        for r in data["at_pattern_rows"]:
             context = r[4][:50] + "..." if len(r[4]) > 50 else r[4]
             f.write(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]}\t{context}\n")
-        if len(data["at_pattern_rows"]) > limit:
-            f.write(f'... ({len(data["at_pattern_rows"]) - limit} more)\n')
         f.write("\n")
     else:
         f.write("None\n\n")

@@ -35,12 +35,16 @@ class LuaFunctionExtractor:
     def __init__(self):
         self.functions = []
         self.function_patterns = [
-            # Standard function definitions
-            r'function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
+            # Meta function definitions (must come first - most specific)
+            r'function\s+([a-zA-Z_][a-zA-Z0-9_]*Meta):([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
+            # Dotted function definitions, e.g., function lia.gay.doshitfunction(
+            r'function\s+([A-Za-z_][\w\.]*?)\s*\(',
             # Method definitions (self:method)
             r'function\s+([a-zA-Z_][a-zA-Z0-9_]*):([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
-            # Table method definitions
-            r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*function\s*\(',
+            # Dotted/table function assignments, e.g., lia.gay.doshitfunction = function(
+            r'([A-Za-z_][\w\.]*?)\s*=\s*function\s*\(',
+            # Standard function definitions (single identifier)
+            r'function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
             # Local function definitions
             r'local\s+function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
         ]
@@ -48,29 +52,43 @@ class LuaFunctionExtractor:
     def extract_functions_from_file(self, file_path: str, is_meta: bool = False) -> List[FunctionInfo]:
         """Extract all function definitions from a Lua file"""
         functions = []
-        
+        processed_lines = set()  # Track processed line numbers to avoid duplicates
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 lines = content.split('\n')
-                
+
             for line_num, line in enumerate(lines, 1):
                 line = line.strip()
-                
+
+                # Skip if this line was already processed
+                if line_num in processed_lines:
+                    continue
+
                 # Check for SERVER/CLIENT blocks
                 is_server_only = False
                 is_client_only = False
-                
+
                 # Look for function definitions
+                function_found = False
                 for pattern in self.function_patterns:
+                    if function_found:
+                        break  # Stop checking other patterns for this line
+
                     matches = re.finditer(pattern, line)
                     for match in matches:
                         if len(match.groups()) == 1:
-                            # Standard function
+                            # Standard function or table method
                             func_name = match.group(1)
+                        elif len(match.groups()) == 2:
+                            # Method definition (could be meta or regular)
+                            group1 = match.group(1)
+                            group2 = match.group(2)
+                            func_name = f"{group1}:{group2}"
                         else:
-                            # Method definition
-                            func_name = f"{match.group(1)}:{match.group(2)}"
+                            # Skip if unexpected number of groups
+                            continue
                         
                         # Check if this is in a SERVER/CLIENT block
                         context_lines = lines[max(0, line_num-10):line_num]
@@ -91,16 +109,24 @@ class LuaFunctionExtractor:
                             param_str = param_match.group(1).strip()
                             if param_str:
                                 parameters = [p.strip() for p in param_str.split(',')]
-                        
+
+                        # Auto-detect meta functions based on naming pattern
+                        is_meta_detected = 'Meta' in func_name and ':' in func_name
+
                         functions.append(FunctionInfo(
                             name=func_name,
                             file_path=file_path,
                             line_number=line_num,
-                            is_meta=is_meta,
+                            is_meta=is_meta_detected or is_meta,  # Use either detection or parameter
                             is_server_only=is_server_only,
                             is_client_only=is_client_only,
                             parameters=parameters
                         ))
+
+                        # Mark this line as processed and stop checking other patterns
+                        processed_lines.add(line_num)
+                        function_found = True
+                        break  # Exit the pattern loop for this line
                         
         except Exception as e:
             print(f"Error reading {file_path}: {e}")
@@ -165,10 +191,12 @@ class FunctionComparator:
         self.doc_parser = DocumentationParser()
         
         # Paths
-        self.meta_path = self.base_path / "gamemode" / "core" / "meta"
-        self.libraries_path = self.base_path / "gamemode" / "core" / "libraries"
-        self.docs_meta_path = self.base_path / "documentation" / "docs" / "meta"
-        self.docs_libraries_path = self.base_path / "documentation" / "docs" / "libraries"
+        self.meta_path = self.base_path / "core" / "meta"
+        self.libraries_path = self.base_path / "core" / "libraries"
+        # Go up one level to get to documentation directory
+        docs_base = self.base_path.parent / "documentation"
+        self.docs_meta_path = docs_base / "docs" / "meta"
+        self.docs_libraries_path = docs_base / "docs" / "libraries"
         
     def get_lua_files(self) -> List[Tuple[str, bool]]:
         """Get all Lua files to process"""
