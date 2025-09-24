@@ -16,13 +16,17 @@ Most scripts expose path defaults at the top of the file (e.g., `DEFAULT_LUA_ROO
 ## Tool categories
 
 ### Localization
-- `files/localization_usage_audit.py`: Scan for missing keys and placeholder mismatches.
-```bash
-python files/localization_usage_audit.py
-```
 - `files/localization_analysis_report.py`: Per-language report for framework + modules; can optionally clean unused keys.
 ```bash
 python files/localization_analysis_report.py --framework-gamemode-dir <path> --framework-languages-dir <path> --modules-root <path> --out-pattern localization_report_{name}.md
+```
+- `files/localization_analysis_report_fixed.py`: Enhanced version with improved pattern detection and reporting.
+```bash
+python files/localization_analysis_report_fixed.py --framework-gamemode-dir <path> --framework-languages-dir <path> --modules-root <path>
+```
+- `files/remove_duplicate_language_keys.py`: Remove duplicate language keys from localization files.
+```bash
+python files/remove_duplicate_language_keys.py
 ```
 
 ### Hooks
@@ -60,10 +64,6 @@ python files/addon_merge_clean_split.py
 ```
 
 ### Lua utilities
-- `files/glualint_runner.py`: Run glualint on multiple directories and generate reports (full log + unused variable filter).
-```bash
-python files/unused_variable_finder.py
-```
 - `files/lua_bundle.py`: Bundle all `.lua` files under a directory into one file.
 ```bash
 python files/lua_bundle.py <source_dir> <output_file>
@@ -84,6 +84,10 @@ python files/remove_lua_comments.py [directory_path]
 ```bash
 python files/strip_sh_prefix.py
 ```
+- `files/remove_trailing_underscores.py`: Remove trailing underscore arguments from Lua function definitions and calls.
+```bash
+python files/remove_trailing_underscores.py [directory_path] [--dry-run] [--recursive]
+```
 
 ### Misc
 - `files/privilege_report.py`: Report used vs registered privileges across framework and modules.
@@ -94,7 +98,87 @@ python files/privilege_report.py
 ```bash
 python files/remove_duplicate_keys.py
 ```
-- `files/remove_duplicate_language_keys.py`: Remove duplicate language keys from localization files.
+
+## Documentation Tools
+
+### Hook Documentation
+- `files/format_gamemode_hooks.py`: Format gamemode_hooks.md according to template standards.
 ```bash
-python files/remove_duplicate_language_keys.py
+python files/format_gamemode_hooks.py
+```
+- `files/format_gamemode_hooks_v2.py`: Enhanced version with improved formatting and section ordering.
+```bash
+python files/format_gamemode_hooks_v2.py
+```
+- `files/add_extensive_examples.py`: Add extensive examples to each hook in gamemode_hooks.md.
+```bash
+python files/add_extensive_examples.py
+```
+- `files/fix_hook_names.py`: Add asterisks around hook names in documentation headers.
+```bash
+python files/fix_hook_names.py
+```
+- `files/remove_asterisks.py`: Remove asterisks from hook names in documentation headers.
+```bash
+python files/remove_asterisks.py
+```
+- `files/missinghooks.py`: Analyze Lua files to find missing hook documentation.
+```bash
+python files/missinghooks.py <lua_root>
+```
+
+### Module Documentation
+- `files/cleanup_docs.py`: Remove unnecessary files from module documentation directories, keeping only changelog.md.
+```bash
+python files/cleanup_docs.py
+```
+
+## Code Analysis Tools
+
+### Function Analysis
+- `files/compare_functions.py`: Comprehensive function comparison and documentation coverage analysis.
+```bash
+python files/compare_functions.py <source_dir> <output_dir>
+```
+- `files/function_comparison_report.py`: Generate reports comparing functions across different Lua files.
+```bash
+python files/function_comparison_report.py <source_dir> <output_file>
+```
+- `files/find_lia_types.py`: Find all unique lia.* function types in the gamemode directory.
+```bash
+python files/find_lia_types.py [gamemode_path]
+```
+
+### Variable Analysis
+- `files/unused_variable_finder.py`: Run glualint on multiple directories and generate unused variable reports.
+```bash
+python files/unused_variable_finder.py
+```
+- `files/replace_unused_vars.py`: Replace unused variables with underscores based on glualint reports.
+```bash
+python files/replace_unused_vars.py <report_file> [lua_root]
+```
+- `files/test_at_patterns.py`: Test @xxxxx pattern detection functionality for localization analysis.
+```bash
+python files/test_at_patterns.py
+```
+- `files/unusedvarscleaner.py`: Advanced unused variable cleaner with batch processing capabilities.
+```bash
+python files/unusedvarscleaner.py <input_file> <output_dir>
+```
+- `files/unusedvarfinder_cleaner.py`: Simple unused variable finder and cleaner utility.
+```bash
+python files/unusedvarfinder_cleaner.py
+```
+
+## Asset Management Tools
+
+### Folder Organization
+- `files/folder_splitter.py`: Split gmpublisher subfolders into LuaContainer and MaterialsContainer.
+```bash
+python files/folder_splitter.py [source_dir] [lua_container] [materials_container]
+```
+- `files/convert_panels_format.py`: Convert panel configurations between different formats.
+```bash
+python files/convert_panels_format.py <input_file> <output_file>
 ```
