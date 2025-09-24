@@ -81,21 +81,21 @@ def read_documented_hooks(hooks_doc_path: str) -> List[str]:
     lines = content.split('\n')
 
     for line in lines:
-        # Look for hook names in backticks or as headers
-        # Matches: `hook_name` or ## hook_name
-        hook_match = re.search(r'`([^`]+)`', line)
+        # Look for hook names in backticks - be more specific about what constitutes a hook name
+        # Only match backticks that contain what looks like a hook name (starts with capital letter, contains only alphanumeric and underscores)
+        hook_match = re.search(r'`([A-Z][A-Za-z0-9_]+)`', line)
         if hook_match:
             hook_name = hook_match.group(1).strip()
-            if hook_name:
+            if hook_name and len(hook_name) > 2:  # Filter out very short matches
                 documented_hooks.add(hook_name)
 
-        # Also check for markdown headers
-        header_match = re.search(r'^#+\s+(.+)', line)
+        # Check for markdown headers that look like hook names
+        # Only match headers that start with capital letter and look like hook names
+        header_match = re.search(r'^###+\s+([A-Z][A-Za-z0-9_]+)\s*$', line)
         if header_match:
             header_text = header_match.group(1).strip()
-            # Extract hook names from headers - more permissive matching
-            # Accept any header that could be a hook name (alphanumeric, underscores, etc.)
-            if re.search(r'^[A-Za-z_][A-Za-z0-9_]*$', header_text):
+            # Only add if it looks like a hook name (starts with capital, reasonable length)
+            if len(header_text) > 2 and re.search(r'^[A-Z][A-Za-z0-9_]+$', header_text):
                 documented_hooks.add(header_text)
 
     return sorted(list(documented_hooks))

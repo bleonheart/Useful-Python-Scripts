@@ -50,6 +50,7 @@ class CombinedReportData:
     hooks_documented: List[str]
     localization_data: Dict
     modules_data: List
+    modules_scan: List[Dict]
     generated_at: str
 
 class FunctionComparisonReportGenerator:
@@ -70,25 +71,29 @@ class FunctionComparisonReportGenerator:
 
         # Initialize analyzers
         self.function_comparator = FunctionComparator(str(self.base_path))
-        self.hooks_doc_path = self.docs_path / "docs" / "hooks" / "gamemode_hooks.md"
+        self.hooks_doc_dir = self.docs_path / "docs" / "hooks"
 
     def run_all_analyses(self) -> CombinedReportData:
         """Run all three analyses and combine results"""
 
-        print("🔍 Running comprehensive analysis...")
+        print("Running comprehensive analysis...")
         print("=" * 60)
 
         # 1. Function Documentation Comparison
-        print("📋 Analyzing function documentation...")
+        print("Analyzing function documentation...")
         function_results = self._run_function_comparison()
 
         # 2. Missing Hooks Analysis
-        print("🎣 Analyzing hooks documentation...")
+        print("Analyzing hooks documentation...")
         hooks_missing, hooks_documented = self._run_hooks_analysis()
 
         # 3. Localization Analysis
-        print("🌐 Analyzing localization...")
+        print("Analyzing localization...")
         localization_data, modules_data = self._run_localization_analysis()
+
+        # 4. Module undocumented items scan (hooks and lia.* functions)
+        print("Scanning external modules for undocumented items...")
+        modules_scan = self._scan_modules_for_undocumented()
 
         return CombinedReportData(
             function_comparison=function_results,
@@ -96,6 +101,7 @@ class FunctionComparisonReportGenerator:
             hooks_documented=hooks_documented,
             localization_data=localization_data,
             modules_data=modules_data,
+            modules_scan=modules_scan,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
@@ -111,12 +117,31 @@ class FunctionComparisonReportGenerator:
         """Run hooks documentation analysis"""
         try:
             hooks_found = scan_hooks(self.base_path / "gamemode")
-            hooks_documented = read_documented_hooks(self.hooks_doc_path)
+            hooks_documented = self._read_all_documented_hooks()
             hooks_missing = [h for h in hooks_found if h not in hooks_documented]
             return sorted(hooks_missing), sorted(list(hooks_documented))
         except Exception as e:
             print(f"⚠️  Error in hooks analysis: {e}")
             return [], []
+
+    def _read_all_documented_hooks(self) -> Set[str]:
+        """Read documented hooks from all hooks documentation files"""
+        documented_hooks = set()
+        
+        if not self.hooks_doc_dir.exists():
+            print(f"Warning: Hooks documentation directory not found: {self.hooks_doc_dir}")
+            return documented_hooks
+        
+        # Read from all .md files in the hooks directory
+        for md_file in self.hooks_doc_dir.glob("*.md"):
+            try:
+                file_hooks = read_documented_hooks(str(md_file))
+                documented_hooks.update(file_hooks)
+            except Exception as e:
+                print(f"Warning: Could not read hooks from {md_file}: {e}")
+                continue
+        
+        return documented_hooks
 
     def _run_localization_analysis(self) -> Tuple[Dict, List]:
         """Run localization analysis"""
@@ -163,16 +188,6 @@ class FunctionComparisonReportGenerator:
         """Generate comprehensive markdown report"""
         report_lines = []
 
-        # Header
-        report_lines.extend([
-            "# 🔍 Comprehensive Function Comparison Report",
-            "",
-            f"**Generated:** {data.generated_at}",
-            f"**Base Path:** `{self.base_path}`",
-            "",
-            "---",
-            ""
-        ])
 
         # Executive Summary
         report_lines.extend(self._generate_executive_summary(data))
@@ -186,16 +201,216 @@ class FunctionComparisonReportGenerator:
         # Localization Section
         report_lines.extend(self._generate_localization_section(data))
 
-        # Per-module docs generation (for non-Lilia modules)
-        if self.generate_module_docs:
-            try:
-                self._generate_module_docs(data)
-            except Exception as e:
-                print(f"⚠️  Error generating per-module docs: {e}")
-        else:
-            print("ℹ️  Skipping per-module documentation generation (disabled by user)")
+        # Modules Section (in-report; do not create per-module files)
+        try:
+            report_lines.extend(self._generate_modules_section(data.modules_scan))
+        except Exception as e:
+            print(f"⚠️  Error generating modules section: {e}")
 
         return "\n".join(report_lines)
+
+    def _scan_modules_for_undocumented(self) -> List[Dict]:
+        """Scan external modules for undocumented hooks and lia.* functions.
+
+        Returns a list of dicts: {
+            'module_path': str,
+            'undoc_hooks': List[str],
+            'undoc_functions': List[str]
+        }
+        Includes entries for all modules encountered (even if counts are zero) so we can build a complete summary.
+        """
+        results: List[Dict] = []
+
+        # Get documented hooks from main Lilia documentation to filter out already documented hooks
+        try:
+            documented_hooks = self._read_all_documented_hooks()
+        except Exception:
+            documented_hooks = set()
+
+        # Get all documented functions from main Lilia documentation
+        try:
+            documented_functions = set()
+            docs_path = Path(self.docs_path) / "docs"
+
+            # Check libraries documentation
+            if (docs_path / "libraries").exists():
+                for md_file in (docs_path / "libraries").glob("*.md"):
+                    if md_file.name.startswith("lia.") or md_file.stem == "lia.core":
+                        try:
+                            with open(md_file, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            import re
+                            for match in re.finditer(r'^###+\s+([A-Za-z_][\w\.:]*)\s*$', content, re.MULTILINE):
+                                func_name = match.group(1).strip()
+                                # Qualify bare headers on core page as lia.func
+                                if '.' not in func_name and md_file.stem == 'lia.core':
+                                    documented_functions.add(f'lia.{func_name}')
+                                else:
+                                    documented_functions.add(func_name)
+                        except Exception:
+                            continue
+
+            # Check meta documentation (method names may also appear in code as type-qualified)
+            if (docs_path / "meta").exists():
+                for md_file in (docs_path / "meta").glob("*.md"):
+                    try:
+                        with open(md_file, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        import re
+                        for match in re.finditer(r'`([A-Za-z_][\w\.:]*)\([^)]*\)`', content):
+                            method_name = match.group(1).strip()
+                            documented_functions.add(method_name)
+                    except Exception:
+                        continue
+        except Exception:
+            documented_functions = set()
+
+        # Iterate modules and scan
+        for base_path in self.modules_paths:
+            base_path = Path(base_path)
+            if not base_path.exists():
+                continue
+
+            for module_name in sorted(os.listdir(base_path)):
+                module_dir = base_path / module_name
+                if not module_dir.is_dir():
+                    continue
+                if module_name == "_disabled" or "_disabled" in str(module_dir):
+                    print(f"ℹ️  Skipping disabled module: {module_dir}")
+                    continue
+
+                # Read module-level docs if present
+                documented_module_hooks, documented_module_functions = self._read_module_docs(module_dir)
+
+                undoc_functions: Set[str] = set()
+                undoc_hooks: Set[str] = set()
+
+                for root, _, files in os.walk(module_dir):
+                    for fname in files:
+                        if not fname.lower().endswith('.lua'):
+                            continue
+                        fpath = Path(root) / fname
+                        try:
+                            with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                        except Exception:
+                            continue
+
+                        import re
+                        # lia.* dotted functions declared in module
+                        for m in re.finditer(r'\b(function\s+([A-Za-z_][\w\.]*?)\s*\(|([A-Za-z_][\w\.]*?)\s*=\s*function\s*\()', content):
+                            name = m.group(2) or m.group(3)
+                            if name and name.startswith('lia.') and name.count('.') >= 2:
+                                if name not in documented_functions and name not in documented_module_functions:
+                                    undoc_functions.add(name)
+
+                        # Hooks via hook.Add / hook.Run literals in module, filtered by documented core hooks
+                        for m in re.finditer(r'hook\s*\.\s*Add\s*\(\s*(["\'])\s*([^"\']+)\1', content):
+                            hook_name = m.group(2)
+                            if hook_name not in documented_hooks and hook_name not in documented_module_hooks:
+                                undoc_hooks.add(hook_name)
+                        for m in re.finditer(r'hook\s*\.\s*Run\s*\(\s*(["\'])\s*([^"\']+)\1', content):
+                            hook_name = m.group(2)
+                            if hook_name not in documented_hooks and hook_name not in documented_module_hooks:
+                                undoc_hooks.add(hook_name)
+
+                results.append({
+                    'module_path': str(module_dir),
+                    'undoc_hooks': sorted(undoc_hooks, key=str.lower),
+                    'undoc_functions': sorted(undoc_functions, key=str.lower),
+                })
+
+        return results
+
+    def _read_module_docs(self, module_dir: Path) -> Tuple[Set[str], Set[str]]:
+        """Read module-level documentation markers from module_dir/docs.
+        - hooks.md: list of documented hook names (strings)
+        - libraries.md: list of documented lia.* function names
+        Returns (documented_hooks, documented_functions)
+        """
+        documented_hooks: Set[str] = set()
+        documented_functions: Set[str] = set()
+
+        docs_dir = module_dir / 'docs'
+        if not docs_dir.exists() or not docs_dir.is_dir():
+            return documented_hooks, documented_functions
+
+        # hooks.md
+        hooks_file = docs_dir / 'hooks.md'
+        if hooks_file.exists():
+            try:
+                with open(hooks_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                import re
+                # Extract hook names from markdown headers (e.g., ## HookName)
+                for m in re.finditer(r'^##+\s+([A-Za-z_][A-Za-z0-9_]*)\s*$', content, re.MULTILINE):
+                    documented_hooks.add(m.group(1))
+            except Exception:
+                pass
+
+        # libraries.md
+        libs_file = docs_dir / 'libraries.md'
+        if libs_file.exists():
+            try:
+                with open(libs_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                import re
+                # Extract lia.* dotted function names from markdown headers (e.g., ## lia.utilities.Blend)
+                for m in re.finditer(r'^##+\s+(lia\.[A-Za-z_][\w\.]*)\s*$', content, re.MULTILINE):
+                    documented_functions.add(m.group(1))
+            except Exception:
+                pass
+
+        return documented_hooks, documented_functions
+
+    def _generate_modules_section(self, modules_scan: List[Dict]) -> List[str]:
+        """Build the in-report Modules section with per-module details and a final summary.
+        Only show a module's detail section if it has any undocumented items, but include all in the summary.
+        """
+        lines: List[str] = []
+        if modules_scan is None:
+            return lines
+
+        lines.append("# Modules")
+        lines.append("")
+
+        # Detail sections
+        for entry in modules_scan:
+            undoc_hooks = entry.get('undoc_hooks', [])
+            undoc_functions = entry.get('undoc_functions', [])
+            if not undoc_hooks and not undoc_functions:
+                continue
+            lines.append("---")
+            lines.append("")
+            lines.append(f"## Module: `{entry['module_path']}`")
+            lines.append("")
+            lines.append("### :package: Module Documentation Report")
+            lines.append("")
+            if undoc_hooks:
+                lines.append("- **Undocumented Hooks:**")
+                for h in undoc_hooks:
+                    lines.append(f"  - `{h}`")
+            if undoc_functions:
+                if undoc_hooks:
+                    lines.append("")
+                lines.append("- **Undocumented lia.* Functions:**")
+                for f in undoc_functions:
+                    lines.append(f"  - `{f}`")
+            lines.append("")
+
+        # Summary table
+        if modules_scan:
+            lines.append("---")
+            lines.append("")
+            lines.append("# :clipboard: Module Documentation Summary")
+            lines.append("")
+            lines.append("| Module Path | Undocumented Hooks | Undocumented lia.* Functions |")
+            lines.append("|---|---:|---:|")
+            for entry in modules_scan:
+                lines.append(f"| {entry['module_path']} | {len(entry.get('undoc_hooks', []))} | {len(entry.get('undoc_functions', []))} |")
+            lines.append("")
+
+        return lines
 
     def _generate_module_docs(self, data: CombinedReportData) -> None:
         """Generate docs inside each external module (non-Lilia) when entries are found.
@@ -217,19 +432,7 @@ class FunctionComparisonReportGenerator:
 
         # Get documented hooks from main Lilia documentation to filter out already documented hooks
         try:
-            documented_hooks = set()
-            # Check gamemode_hooks.md
-            if self.hooks_doc_path.exists():
-                documented_hooks.update(read_documented_hooks(str(self.hooks_doc_path)))
-
-            # Also check other hook documentation files
-            docs_path = Path(self.docs_path) / "docs"
-            if (docs_path / "hooks").exists():
-                for md_file in (docs_path / "hooks").glob("*.md"):
-                    try:
-                        documented_hooks.update(read_documented_hooks(str(md_file)))
-                    except Exception:
-                        continue
+            documented_hooks = self._read_all_documented_hooks()
         except Exception:
             documented_hooks = set()
 
@@ -324,57 +527,86 @@ class FunctionComparisonReportGenerator:
                             if hook_name not in documented_hooks:
                                 hooks_found.add(hook_name)
 
-                # If any entries exist, create docs folder and write files
-                if dotted_functions or hooks_found:
-                    docs_dir.mkdir(parents=True, exist_ok=True)
+        # If any entries exist, create docs folder and write files
+        if dotted_functions or hooks_found:
+            docs_dir.mkdir(parents=True, exist_ok=True)
 
+            # Write libraries.md if dotted functions found (always overwrite)
+            if dotted_functions:
+                lib_md_path = docs_dir / 'libraries.md'
+                with open(lib_md_path, 'w', encoding='utf-8') as f:
+                    f.write('# Module Libraries\n\n')
+                    f.write('Detected dotted functions in this module.\n\n')
+                    for name in sorted(set(dotted_functions)):
+                        f.write(f'## {name}\n\n')
+                        f.write('**Purpose**\n\n')
+                        f.write('Function description goes here.\n\n')
+                        f.write('**Parameters**\n\n')
+                        f.write('* `param1` (*type*): Description\n\n')
+                        f.write('**Returns**\n\n')
+                        f.write('* `return` (*type*): Description\n\n')
+                        f.write('**Realm**\n\n')
+                        f.write('Shared.\n\n')
+                        f.write('**Example Usage**\n\n')
+                        f.write('```lua\n')
+                        f.write(f'-- Example usage of {name}\n')
+                        f.write(f'local result = {name}()\n')
+                        f.write('```\n\n')
+                        f.write('---\n\n')
 
-                    # Write libraries.md if dotted functions found (always overwrite)
-                    if dotted_functions:
-                        lib_md_path = docs_dir / 'libraries.md'
-                        with open(lib_md_path, 'w', encoding='utf-8') as f:
-                            f.write('# Module Libraries\n\n')
-                            f.write('Detected dotted functions in this module.\n\n')
-                            for name in sorted(set(dotted_functions)):
-                                f.write(f'- `{name}`\n')
+            # Handle hooks.md - always overwrite the main file
+            hooks_md_path = docs_dir / 'hooks.md'
 
-                    # Handle hooks.md - always overwrite the main file
-                    hooks_md_path = docs_dir / 'hooks.md'
-
-                    # Read existing hooks from hooks.md to compare
+            # Read existing hooks from hooks.md to compare
+            existing_hooks = set()
+            if hooks_md_path.exists():
+                try:
+                    with open(hooks_md_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        # Extract existing hook names from markdown headers
+                        import re
+                        for match in re.finditer(r'^##+\s+([A-Za-z_][A-Za-z0-9_]*)\s*$', content, re.MULTILINE):
+                            existing_hooks.add(match.group(1).strip())
+                except Exception:
                     existing_hooks = set()
-                    if hooks_md_path.exists():
-                        try:
-                            with open(hooks_md_path, 'r', encoding='utf-8') as f:
-                                content = f.read()
-                                # Extract existing hook names from the file
-                                import re
-                                for match in re.finditer(r'`([^`]+)`', content):
-                                    existing_hooks.add(match.group(1).strip())
-                        except Exception:
-                            existing_hooks = set()
 
-                    # Determine new hooks (hooks that weren't in the previous file)
-                    new_hooks = hooks_found - existing_hooks
+            # Determine new hooks (hooks that weren't in the previous file)
+            new_hooks = hooks_found - existing_hooks
 
-                    # Always update hooks.md with current status
-                    with open(hooks_md_path, 'w', encoding='utf-8') as f:
-                        f.write('# Module Hooks\n\n')
-                        if hooks_found:
-                            f.write('Detected hooks referenced/added in this module that are NOT documented in gamemode_hooks.md.\n\n')
-                            for name in sorted(hooks_found, key=str.lower):
-                                f.write(f'- `{name}`\n')
-                        else:
-                            f.write('All hooks used in this module are already documented in gamemode_hooks.md.\n\n')
+            # Always update hooks.md with current status
+            with open(hooks_md_path, 'w', encoding='utf-8') as f:
+                f.write('# Module Hooks\n\n')
+                f.write('This document describes the hooks available in this module.\n\n')
+                f.write('---\n\n')
+                if hooks_found:
+                    for name in sorted(hooks_found, key=str.lower):
+                        f.write(f'## {name}\n\n')
+                        f.write('**Purpose**\n\n')
+                        f.write('Called when [description goes here].\n\n')
+                        f.write('**Parameters**\n\n')
+                        f.write('* `param1` (*type*): Description\n\n')
+                        f.write('**Realm**\n\n')
+                        f.write('Server.\n\n')
+                        f.write('**When Called**\n\n')
+                        f.write('This hook is triggered when [description goes here].\n\n')
+                        f.write('**Example Usage**\n\n')
+                        f.write('```lua\n')
+                        f.write(f'hook.Add("{name}", "MyHookName", function(param1)\n')
+                        f.write('    -- Hook logic here\n')
+                        f.write('end)\n')
+                        f.write('```\n\n')
+                        f.write('---\n\n')
+                else:
+                    f.write('All hooks used in this module are already documented in the main hooks documentation.\n\n')
 
-                    # Create hooks_new.md only if there are truly new hooks
-                    if new_hooks:
-                        hooks_new_path = docs_dir / 'hooks_new.md'
-                        with open(hooks_new_path, 'w', encoding='utf-8') as f:
-                            f.write('# New Module Hooks\n\n')
-                            f.write('New hooks detected in this module that were not in the previous hooks.md:\n\n')
-                            for name in sorted(new_hooks, key=str.lower):
-                                f.write(f'- `{name}`\n')
+            # Create hooks_new.md only if there are truly new hooks
+            if new_hooks:
+                hooks_new_path = docs_dir / 'hooks_new.md'
+                with open(hooks_new_path, 'w', encoding='utf-8') as f:
+                    f.write('# New Module Hooks\n\n')
+                    f.write('New hooks detected in this module that were not in the previous hooks.md:\n\n')
+                    for name in sorted(new_hooks, key=str.lower):
+                        f.write(f'- `{name}`\n')
 
     def _generate_executive_summary(self, data: CombinedReportData) -> List[str]:
         """Generate executive summary section"""
@@ -428,16 +660,12 @@ class FunctionComparisonReportGenerator:
         total_documented = sum(r.get('documented_functions', 0) for r in data.function_comparison.values())
         total_missing = sum(len(r.get('missing_functions', [])) for r in data.function_comparison.values())
         total_missing_unique = sum(r.get('missing_functions_count', len(r.get('missing_functions', []))) for r in data.function_comparison.values())
-        total_extra = sum(len(r.get('extra_documented', [])) for r in data.function_comparison.values())
-        total_extra_unique = sum(r.get('extra_documented_count', len(r.get('extra_documented', []))) for r in data.function_comparison.values())
-
         lines.extend([
             f"### Summary Statistics",
             f"- **Files Analyzed:** {total_files}",
             f"- **Total Functions:** {total_functions}",
             f"- **Documented Functions:** {total_documented}",
             f"- **Missing Documentation:** {total_missing} unique ({total_missing_unique} total occurrences)",
-            f"- **Extra Documentation:** {total_extra} unique ({total_extra_unique} total occurrences)",
             f"- **Coverage:** {(total_documented/total_functions*100):.1f}%" if total_functions > 0 else "- **Coverage:** N/A",
             "",
         ])
@@ -454,21 +682,6 @@ class FunctionComparisonReportGenerator:
                 "",
             ])
             for func in sorted(set(all_missing)):
-                lines.append(f"- `{func}`")
-            lines.append("")
-
-        # Global extra documented functions list
-        all_extra = []
-        for file_data in data.function_comparison.values():
-            all_extra.extend(file_data.get('extra_documented', []))
-
-        if all_extra:
-            lines.extend([
-                "### Extra Documentation (not in code - Global List)",
-                f"Total: {len(set(all_extra))} unique functions documented but not implemented",
-                "",
-            ])
-            for func in sorted(set(all_extra)):
                 lines.append(f"- `{func}`")
             lines.append("")
 
@@ -601,24 +814,8 @@ def confirm_analysis_actions(base_path: Path, docs_path: Path, language_file: st
         else:
             print("Please enter 'y' for yes or 'n' for no.")
 
-    # Ask about module docs generation if not disabled
-    generate_module_docs = True
-    if not no_module_docs:
-        print("\n📝 MODULE DOCUMENTATION GENERATION:")
-        print("   This will scan module directories and may create 'docs' folders")
-        print("   with 'libraries.md' and 'hooks.md' files in each module.")
-
-        while True:
-            response = input("Generate documentation in module directories? (y/n): ").strip().lower()
-            if response in ['y', 'yes']:
-                generate_module_docs = True
-                break
-            elif response in ['n', 'no']:
-                generate_module_docs = False
-                print("ℹ️  Module documentation generation will be skipped.")
-                break
-            else:
-                print("Please enter 'y' for yes or 'n' for no.")
+    # Module docs generation is controlled by the no_module_docs flag
+    generate_module_docs = not no_module_docs
 
     # Ask about each module path individually
     approved_modules_paths = []
@@ -751,7 +948,7 @@ Examples:
             print(f"   • Localization issues: {len(data.localization_data.get('unused', []))} unused, {len(data.localization_data.get('undefined_rows', []))} undefined")
 
     except Exception as e:
-        print(f"❌ Error during analysis: {e}")
+        print(f"ERROR during analysis: {e}")
         if not args.quiet:
             import traceback
             traceback.print_exc()
