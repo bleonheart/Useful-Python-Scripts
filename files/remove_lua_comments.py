@@ -10,7 +10,7 @@ DEFAULT_DIRECTORIES = [
     Path(r"E:\GMOD\Server\garrysmod\gamemodes\lilia"),
 ]
 
-DEFAULT_IGNORE_FILE = ".luacheckrc"
+DEFAULT_IGNORE_FILE = ".commentIgnore"
 
 
 def _match_long_bracket_opener(text: str, start_index: int):
@@ -249,6 +249,33 @@ def find_ignore_file(directory: Path) -> Path:
     return directory / DEFAULT_IGNORE_FILE
 
 
+def glob_to_regex(pattern: str) -> str:
+    """Convert LuaCheck-style glob pattern to regular expression."""
+    # Escape special regex characters except those we handle
+    pattern = re.sub(r'([.+^${}()|\[\]\\])', r'\\\1', pattern)
+
+    # Handle ** (matches across path separators)
+    pattern = pattern.replace('**', '___DOUBLE_STAR___')
+
+    # Handle * (matches any characters except path separators)
+    pattern = pattern.replace('*', '[^/]*')
+
+    # Handle ** back
+    pattern = pattern.replace('___DOUBLE_STAR___', '.*')
+
+    # Handle ? (matches any single character except path separators)
+    pattern = pattern.replace('?', '[^/]')
+
+    # Handle character classes like [abc] or [!abc]
+    pattern = re.sub(r'\\\[([^]]*?)\\\]', r'[\1]', pattern)
+    pattern = re.sub(r'\\\[!([^]]*?)\\\]', r'[^/]', pattern)
+
+    # Handle alternatives like {a,b,c}
+    pattern = re.sub(r'\\\{([^}]*?)\\\}', r'(?:\1)', pattern)
+
+    return pattern
+
+
 def should_ignore_file(file_path: Path, ignore_patterns: List[str], base_directory: Path) -> bool:
     """Check if a file should be ignored based on the patterns."""
     if not ignore_patterns:
@@ -261,7 +288,9 @@ def should_ignore_file(file_path: Path, ignore_patterns: List[str], base_directo
 
         for pattern in ignore_patterns:
             # Convert glob pattern to regex
-            regex_pattern = pattern.replace('*', '.*').replace('?', '.')
+            regex_pattern = glob_to_regex(pattern)
+            # Add anchors for full path matching
+            regex_pattern = f'^{regex_pattern}$'
             if re.match(regex_pattern, relative_str):
                 return True
 
@@ -292,7 +321,9 @@ def find_lua_files(directory, ignore_patterns=None):
             temp_path = dir_path.relative_to(directory)
             temp_str = str(temp_path).replace('\\', '/')
             for pattern in ignore_patterns:
-                regex_pattern = pattern.replace('*', '.*').replace('?', '.')
+                regex_pattern = glob_to_regex(pattern)
+                # Add anchors for full path matching
+                regex_pattern = f'^{regex_pattern}$'
                 if re.match(regex_pattern, temp_str):
                     dirs_to_remove.append(dir_name)
                     break
