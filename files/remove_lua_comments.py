@@ -126,12 +126,30 @@ def remove_lua_comments(content: str):
                     lines_removed += content[i:end_idx].count("\n")
                     i = end_idx
                     continue
+            # For single-line comments, find the end of the line
+            comment_start = i
             while i < n and content[i] != "\n":
                 i += 1
-            lines_removed += 1
-            if i < n and content[i] == "\n":
-                output_chars.append("\n")
-                i += 1
+            # Check if there was any code before the comment on this line
+            # Find the start of the current line
+            line_start = comment_start
+            while line_start > 0 and content[line_start - 1] != "\n":
+                line_start -= 1
+            # Get the code part (everything before the comment)
+            code_part = content[line_start:comment_start].rstrip()
+            # If there's actual code before the comment, keep it
+            if code_part:
+                output_chars.append(code_part)
+                # Add newline if we're not at the end
+                if i < n and content[i] == "\n":
+                    output_chars.append("\n")
+                    i += 1
+            else:
+                # No code before comment, remove the whole line
+                lines_removed += 1
+                if i < n and content[i] == "\n":
+                    output_chars.append("\n")
+                    i += 1
             continue
         if ch == '"' or ch == "'":
             quote = ch
